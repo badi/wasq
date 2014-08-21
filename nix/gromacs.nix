@@ -1,5 +1,6 @@
 { stdenv, fetchurl, cmake,
   singlePrec ? true,
+  staticLib ? true,
   fftw
 }:
 
@@ -16,9 +17,10 @@ stdenv.mkDerivation rec {
 
   buildInputs = [cmake fftw];
 
-  cmakeFlags = ''
-    ${if singlePrec then "-DGMX_DOUBLE=OFF" else "-DGMX_DOUBLE=ON -DGMX_DEFAULT_SUFFIX=OFF"}
-  '';
+  flagPrecision = if singlePrec then "-DGMX_DOUBLE=OFF" else "-DGMX_DOUBLE=ON -DGMX_DEFAULT_SUFFIX=OFF";
+  flagStatic = if staticLib then "-DBUILD_SHARED_LIBS=OFF -DGMX_PREFER_STATIC_LIBS=ON" else "";
+
+  cmakeFlags = "${flagPrecision} ${flagStatic}";
 
   meta = {
     homepage    = "http://www.gromacs.org";
