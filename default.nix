@@ -6,19 +6,20 @@ let
   platforms = pkgs.lib.platforms;
 
   pythonEnv = {
-      inherit (pkgs) stdenv buildPythonPackage fetchurl fetchgit;
+      inherit (pkgs) stdenv buildPythonPackage fetchurl;
       inherit (pkgs.lib) licenses platforms;
       inherit python;
     };
 
   buildEnv = {
-    inherit (pkgs) stdenv fetchurl fetchgit;
+    inherit (pkgs) stdenv fetchurl;
     inherit (pkgs.lib) licenses platforms;
   };
 
   pythonPackages = pkgs.python27Packages;
   python = pythonPackages.python;
   pyyaml = pythonPackages.pyyaml;
+  pyzmq = pythonPackages.pyzmq;
   cython = pythonPackages.cython;
   numpy = pythonPackages.numpy;
   scipy = pythonPackages.scipy;
@@ -34,6 +35,8 @@ let
   prody = pkgs.callPackage ./nix/prody.nix (pythonEnv // {inherit numpy;});
   pxul = pkgs.callPackage ./nix/pxul.nix pythonEnv;
   mdprep = pkgs.callPackage ./nix/mdprep.nix (pythonEnv // { inherit pyyaml mdtraj prody; });
+  pwq = pkgs.callPackage ./nix/pwq.nix (pythonEnv // {inherit cctools pyyaml pyzmq;});
+  mdq = pkgs.callPackage ./nix/mdq.nix (pythonEnv // {inherit cctools mdtraj mdprep pwq;});
 
 in
 with pkgs;
@@ -52,7 +55,7 @@ with python27Packages;
       mdtraj prody cctools
 
       # my libraries
-      pxul mdprep
+      pxul mdprep pwq
     ];
   };
 }

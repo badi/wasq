@@ -1,15 +1,15 @@
-{ buildPythonPackage, fetchgit,
+{ buildPythonPackage, fetchurl,
 python, pyyaml, mdtraj, prody, ... }:
 
 buildPythonPackage rec {
-  version = "2014.07.25.42f4f58";
   basename = "mdprep";
+  revision = "42f4f58";
+  version = "2014.07.25.${revision}";
   name = "${basename}-${version}";
 
-  src = fetchgit {
-    url = "git://github.com/badi/{basename}.git";
-    rev = "42f4f583c849281362d971a28fc576a8060040a8";
-    sha256 = "0hkhak8hqdl65xp03qpclbvjddlfldj47qxqzxnzpgcplgryn1dc";
+  src = fetchurl {
+    url = "https://github.com/badi/${basename}/archive/${revision}.zip";
+    sha256 = "014zqxldka23k5ma0gabddz8zm9d2xa82p8xd0916nci2cwvj4kg";
   };
 
   buildInputs = [ python pyyaml mdtraj prody ];
