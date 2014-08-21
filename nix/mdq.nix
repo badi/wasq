@@ -1,5 +1,6 @@
 { buildPythonPackage, fetchurl,
-python, cctools, mdtraj, prody, mdprep, pwq,
+python, cctools, mdprep, pwq,
+mdtraj, prody, pyyaml, pyzmq,
 ...}:
 
 buildPythonPackage rec {
@@ -7,13 +8,14 @@ buildPythonPackage rec {
   revision = "3d73933";
   version = "2014.04.05.${revision}";
   name = "${basename}-${version}";
+  doCheck = true;
 
   src = fetchurl {
-    url = "https://github.com/badi/${basename}/archive/${revision}.zip";
-    sha256 = "05cdyp7rf4gz5640y7ryyfnyj1696fkmpj4amdlkjnpdchq30vsj";
+    url = "https://github.com/badi/${basename}/archive/${revision}.tar.gz";
+    sha256 = "11ws2l7c9xdizkw61paxsf2gp14bagndhpr5d8kjvkn0q30xags8";
   };
 
-  buildInputs = [ python cctools mdtraj prody mdprep pwq ];
+  buildInputs = [ python cctools mdprep pwq mdtraj prody pyyaml pyzmq ];
 
   meta = {
     description = "WorkQueue for running MD Tasks";

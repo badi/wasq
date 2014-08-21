@@ -36,7 +36,7 @@ let
   pxul = pkgs.callPackage ./nix/pxul.nix pythonEnv;
   mdprep = pkgs.callPackage ./nix/mdprep.nix (pythonEnv // { inherit pyyaml mdtraj prody; });
   pwq = pkgs.callPackage ./nix/pwq.nix (pythonEnv // {inherit cctools pyyaml pyzmq;});
-  mdq = pkgs.callPackage ./nix/mdq.nix (pythonEnv // {inherit cctools mdtraj mdprep pwq;});
+  mdq = pkgs.callPackage ./nix/mdq.nix (pythonEnv // {inherit cctools mdprep pwq guamps prody mdtraj pyyaml pyzmq;});
   gromacs = with pkgs;
             pkgs.callPackage ./nix/gromacs.nix {inherit stdenv fetchurl cmake;
 	                                        fftw = fftwSinglePrec; };
@@ -61,7 +61,7 @@ with python27Packages;
 
       # my libraries
       guamps
-      pxul mdprep pwq
+      pxul mdprep pwq mdq
     ];
   };
 }
