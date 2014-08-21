@@ -37,6 +37,10 @@ let
   mdprep = pkgs.callPackage ./nix/mdprep.nix (pythonEnv // { inherit pyyaml mdtraj prody; });
   pwq = pkgs.callPackage ./nix/pwq.nix (pythonEnv // {inherit cctools pyyaml pyzmq;});
   mdq = pkgs.callPackage ./nix/mdq.nix (pythonEnv // {inherit cctools mdtraj mdprep pwq;});
+  gromacs = with pkgs;
+            pkgs.callPackage ./nix/gromacs.nix {inherit stdenv fetchurl cmake;
+	                                        fftw = fftwSinglePrec; };
+
 
 in
 with pkgs;
@@ -53,6 +57,7 @@ with python27Packages;
 
       # externals
       mdtraj prody cctools
+      gromacs
 
       # my libraries
       pxul mdprep pwq
