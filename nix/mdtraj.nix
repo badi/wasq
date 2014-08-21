@@ -1,6 +1,7 @@
-{pkgs}:
+{buildPythonPackage, fetchurl, licenses, platforms,
+cython, numpy, scipy, pandas, nose,
+...}:
 
-with pkgs; with python27Packages;
 buildPythonPackage rec {
   version = "0.9.0";
   baseName = "mdtraj";
@@ -11,8 +12,7 @@ buildPythonPackage rec {
     sha256 = "e687c31e32dc7e4486ee9277d7df51ed8c303ce6112ae03f9e6e4514d90690d8";
   };
 
-  buildInputs = [ cython ];
-  propagatedBuildInputs = [ numpy scipy pandas nose ];
+  buildInputs = [ cython numpy scipy pandas nose];
 
   meta = {
     description = "Read, write and analyze Molecular Dynamics trajectories";
@@ -40,8 +40,8 @@ buildPythonPackage rec {
       name mdconvert.
       '';
 
-    license = pkgs.lib.licenses.lgpl2;
-    platforms = pkgs.lib.platforms.all;
+    license = licenses.lgpl2;
+    platforms = platforms.all;
     maintainers = [ "Badi' Abdul-Wahid <abdulwahidc@gmail.com>" ];
   };
 }
