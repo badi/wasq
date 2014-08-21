@@ -40,7 +40,7 @@ let
   gromacs = with pkgs;
             pkgs.callPackage ./nix/gromacs.nix {inherit stdenv fetchurl cmake;
 	                                        fftw = fftwSinglePrec; };
-
+  guamps = with pkgs; pkgs.callPackage ./nix/guamps.nix (buildEnv // {inherit cmake gromacs;});
 
 in
 with pkgs;
@@ -60,6 +60,7 @@ with python27Packages;
       gromacs
 
       # my libraries
+      guamps
       pxul mdprep pwq
     ];
   };
