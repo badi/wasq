@@ -2,6 +2,7 @@
 let
   pkgs = import <nixpkgs> {};
   mdtraj = pkgs.callPackage ./nix/mdtraj.nix { inherit pkgs; };
+  cctools = pkgs.callPackage ./nix/cctools.nix { inherit pkgs; };
 in
 with pkgs;
 with python27Packages;
@@ -11,6 +12,6 @@ with python27Packages;
     basename = "wasq";
     name = "${basename}-${version}";
     src = ./.;
-    buildInputs = [ ipython numpy scipy matplotlib mdtraj ];
+    buildInputs = [ ipython numpy scipy matplotlib mdtraj cctools ];
   };
 }
