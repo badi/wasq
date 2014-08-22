@@ -54,10 +54,13 @@ def getopts():
     p.add_argument('-O', '--output-freq', default=1, type=float, help='Trajectory frequency in ps')
     p.add_argument('-p', '--pdb', required=True)
     p.add_argument('-o', '--tpr', required=True)
+    p.add_argument('-d', '--debug', default='critical', choices='debug info2 info1 info warning error critical'.split())
     return p.parse_args()
 
 
 def main(opts):
+    loglevel = 'set_' + opts.debug
+    getattr(pxul.logging, loglevel)()
     prepare(opts.pdb, opts.tpr, ff=opts.ff, water=opts.water, time_ps=opts.simulation_time, outputfreq_ps=opts.output_freq)
 
 
