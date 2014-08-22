@@ -477,20 +477,21 @@ def test():
 
 
 def getopts():
-    from argparse import ArgumentParser
-    p = ArgumentParser()
-    p.add_argument('-r', '--radius', type=float)
-    p.add_argument('-t', '--steptime', type=float, help='The length of each AS step in ps')
-    p.add_argument('-f', '--outputfreq', type=float, help='Output frequency in ps')
-    p.add_argument('-i', '--iterations', type=int)
+    from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+    p = ArgumentParser()#formatter_class=ArgumentDefaultsHelpFormatter)
+    p.add_argument('-r', '--radius', default=20)
+    p.add_argument('-i', '--iterations', type=float, default=float('inf'))
+    p.add_argument('tprs', metavar='TPR', nargs='+',
+                   help='Coordinates for the initial states. The first one will be used to propagate simulation parameters.')
+    opts =  p.parse_args()
+    opts.tprs = map(os.path.abspath, opts.tprs)
+    return opts
 
-    p.add_argument('-w', '--water', default='none')
-    p.add_argument('-F', '--ff', default='amber03')
-    p.add_argument('pdbs', metavar='PDB', nargs='+')
-
-    return p.parse_args()
+def main(opts):
+    ref = opts.tprs[0]
+    sampler = AdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    sampler.run()
 
 if __name__ == '__main__':
     opts = getopts()
-    print opts
     main(opts)
