@@ -56,6 +56,7 @@ with python27Packages;
       ipython numpy scipy matplotlib pyyaml
 
       # externals
+      imagemagick
       mdtraj prody cctools
       gromacs
 
