@@ -174,7 +174,7 @@ class GromacsWalker(object):
             return self.cover(traj, top, R, C, L)
 
 
-class AdaptiveSampler(object):
+class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
                  walker_class=GromacsWalker, extra_files=None, extra_params=None,
                  metric=dihedral_rmsd, checkpoint_dir='AS'):
@@ -235,21 +235,24 @@ class AdaptiveSampler(object):
         else:
             return count
 
+    def run_walker(self, walker):
+        raise NotImplementedError
+
+    def collect_results(self):
+        raise NotImplementedError
+
     def iterate(self):
         "Run one iteration"
         idx = self._select()
         walkers = [self.walker_class.from_spec(st, self.extra_files, self.extra_params)
                    for st in self.S]
 
-        # fan out
         print self.current_iteration, len(walkers)
-        results = []
-        for w in walkers:
-            r =  w.run(self.R, self.C, self.S)
-            results.append(r)
 
-        # merge
-        for Cw, Sw in results:
+        for w in walkers:
+            self.run_walker(w)
+
+        for Cw, Sw in self.collect_results():
             self.C, self.S = PC.labeled_online_poisson_cover(Cw, self.R, L=Sw, C=self.C, CL=self.S, metric=self.metric)
 
     def write_log(self):
@@ -267,6 +270,22 @@ class AdaptiveSampler(object):
             self.current_iteration += 1
 
 
+class LocalAdaptiveSampler(AbstractAdaptiveSampler):
+    "Run adaptive sampling on the local  machine"
+    def __init__(self, *args, **kws):
+        super(LocalAdaptiveSampler, self).__init__(*args, **kws)
+        self._iteration_results = list()
+
+    def run_walker(self, walker):
+        r = walker.run(self.R, self.C, self.S)
+        self._iteration_results.append(r)
+
+    def collect_results(self):
+        for r in self._iteration_results:
+            yield r
+        self._iteration_results = list()
+
+
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
     p = ArgumentParser()
@@ -280,7 +299,7 @@ def getopts():
 
 def main(opts):
     ref = opts.tprs[0]
-    sampler = AdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    sampler = LocalAdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
     sampler.run()
 
 if __name__ == '__main__':
