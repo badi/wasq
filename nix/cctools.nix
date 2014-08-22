@@ -3,13 +3,14 @@ which, swig, python, libzip, zlib, perl, fuse, openssl,
 ...}:
 
 stdenv.mkDerivation rec {
-  version = "4.2.2";
+  version = "3.7.5.badi-${revision}";
   basename = "cctools";
   name = "${basename}-${version}";
+  revision = "1512c37";
 
   src = fetchurl {
-    url = "http://ccl.cse.nd.edu/software/files/cctools-4.2.2-source.tar.gz";
-    sha256 = "89e14601e258885f39fd9e3cb85d8314e37b4869535c2416b6319039a98f14f8";
+    url = "https://github.com/badi/${basename}/archive/${revision}.tar.gz";
+    sha256 = "1gbwx8r094ga143bkam9qfpg7jddpzjvnzz3226cpnygcfxrry8g";
   };
 
   buildInputs = [ stdenv which swig python libzip zlib perl fuse openssl ];
