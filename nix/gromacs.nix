@@ -22,6 +22,14 @@ stdenv.mkDerivation rec {
 
   cmakeFlags = "${flagPrecision} ${flagStatic}";
 
+  # When using threads, libgcc_s.so.1 must be available at run time, otherwise
+  # "libgcc_s.so.1 must be installed for pthread_cancel to work"
+  # There are multiple solutions possible, documented here:
+  # http://permalink.gmane.org/gmane.linux.distributions.nixos/11610
+  # The solution backed by Eelco Dolstra is used.
+  # http://permalink.gmane.org/gmane.linux.distributions.nixos/11611
+  NIX_LDFLAGS = "-lgcc_s";
+
   meta = {
     homepage    = "http://www.gromacs.org";
     licence     = "GPLv2";
