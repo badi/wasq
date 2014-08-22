@@ -20,96 +20,6 @@ import cPickle as pickle
 
 __DEFAULT_METRIC = PC.DEFAULT_METRIC
 
-
-def set_tpr_values(keys, values, tpr):
-    assert len(keys) == len(values)
-    for k,v in zip(keys,values):
-        tpr_set_scalar(tpr, k, v)
-
-def set_tpr_outputfreq(freq, tpr):
-    for attr in 'nstxout nstxtcout nstfout nstvout nstlog'.split():
-        tpr_set_scalar(tpr, attr, freq)
-
-def prepare_tpr(tpr, outdir='.', nsteps=10000, outfreq=1000):
-    pxul.os.ensure_dir(outdir)
-    set_tpr_outputfreq(outfreq, tpr)
-    tpr_set_scalar(tpr, 'nsteps', nsteps)
-    x = os.path.join(outdir,'x.gps')
-    v = os.path.join(outdir,'v.gps')
-    t = os.path.join(outdir,'t.gps')
-    x,v,t = map(os.path.normpath, [x,v,t])
-    guamps_get(f=tpr, s='positions' , o=x)
-    guamps_get(f=tpr, s='velocities', o=v)
-    guamps_get(f=tpr, s='time'      , o=t)
-    return x,v,t
-
-def sample(x,v,t,tpr, time_ps=100, outputfreq_ps=10, workarea='.'):
-    x,v,t = map(lambda p: os.path.relpath(p, workarea),
-                [x,v,t])
-
-    with pxul.os.StackDir(workarea), disable_gromacs_backups():
-        # resume the simulation
-        guamps_set(f=tpr, s='positions', i=x)
-        guamps_set(f=tpr, s='velocities',i=v)
-        guamps_set(f=tpr, s='time',      i=t)
-
-        # make sure nsteps and output frequency are correct
-        dt = tpr_get_scalar(tpr, 'deltat', float)
-        nsteps = int(time_ps / dt)
-        tpr_set_scalar(tpr, 'nsteps', nsteps)
-        freq = int(outputfreq_ps / dt)
-        set_tpr_outputfreq(freq, tpr)
-
-        # run the simulation
-        trr = 'traj.trr'
-        pdb = 'topol.pdb'
-        mdrun(s=tpr, o=trr, c=pdb, nt=0)
-
-
-def prepare(pdbs, workarea='AS', ff='amber03', nsteps=10000, outfreq=1000, preparer=None):
-    preparer = preparer or mdprep.gmx_prep.PrepareImplicitSolventSystem
-    prefix = os.path.join(workarea, 'previous')
-
-    for i, pdb in enumerate(pdbs):
-
-        pdb = os.path.abspath(pdb)
-        walker = 'walker.%d' % i
-        outdir = os.path.join(prefix, walker)
-        pxul.os.ensure_dir(outdir)
-
-        with pxul.os.StackDir(outdir):
-            prep = preparer()
-            res  = prep.prepare(pdb, ff=ff, seed=np.random.randint(999999))
-            tpr  = res['tpr']
-            xvt  = prepare_tpr(tpr, nsteps=nsteps, outfreq=outfreq)
-            tpr2 = 'topol.tpr'
-            os.rename(tpr, tpr2)
-
-        x,v,t,tpr = map(functools.partial(os.path.join, outdir),
-                        xvt + (tpr2,))
-        nxt = os.path.join(workarea, 'next', walker)
-        pxul.os.ensure_dir(nxt)
-
-        result = dict()
-        for key, path in zip('x v t tpr'.split(), [x,v,t,tpr]):
-            base = os.path.basename(path)
-            dst = os.path.join(nxt, base)
-            shutil.copy(path, dst)
-            pxul.logging.logger.info(path, '->', dst)
-            result[key] = base
-
-        tpr_set_scalar(tpr, 'nsteps', nsteps)
-        set_tpr_outputfreq(outfreq, tpr)
-
-        yield nxt, result
-
-
-
-def sample_walker(walker_dir, time_ps, outfreq_ps=10):
-    with pxul.os.StackDir(walker_dir):
-        sample('x.gps', 'v.gps', 't.gps', 'topol.tpr', time_ps=time_ps, outputfreq_ps=outfreq_ps)
-
-
 def calc_dihedral(traj, mdtraj_calculator):
     ind, radians = mdtraj_calculator(traj)
     degrees = radians * 180 / np.pi
@@ -120,115 +30,9 @@ def calc_phipsi(traj):
     psi = calc_dihedral(traj, mdtraj.compute_psi)
     return np.hstack([phi,psi])
 
-def cover_walker(walker_dir, radius, C=None, metric=__DEFAULT_METRIC):
-    with pxul.os.StackDir(walker_dir):
-        trj = mdtraj.load('traj.xtc', top='topol.pdb')
-        S = calc_phipsi(trj)
-        C = PC.online_poisson_cover(S, radius, C=C, metric=metric)
-        A = PC.assign(S, C, metric=metric)
-        return C, A, trj
-
-
-def step_walker(i, radius, workarea='AS', C=None, metric=__DEFAULT_METRIC, time_ps=100, outfreq_ps=10):
-    walker_dir = os.path.join(workarea, 'next', 'walker.%d' % i)
-    sample_walker(walker_dir, time_ps=time_ps, outfreq_ps=outfreq_ps)
-    C, A, trj = cover_walker(walker_dir, radius, C=C, metric=metric)
-    return C, A, trj
-
-
-def initialize(starting_pdbs, radius=10):
-    angles = []
-    for pdb in starting_pdbs:
-        trj = mdtraj.load(pdb)
-        ang = calc_phipsi(trj)
-        angles.append(ang)
-    angles = np.vstack(angles)
-    return PC.poisson_cover(angles, radius)
-
-def main_loop(walker_ids, radius, workarea='AS', C=None, metric=__DEFAULT_METRIC, time_ps=100, outfreq_ps=10, eps=0.000001):
-    cdist = PC.make_cdist(metric=metric)
-
-    C = C
-    trajs = []
-    nexts = [] # :: [(walker_id, traj idx)]
-
-    for i in walker_ids:
-        C, _, trj = step_walker(i, radius, workarea=workarea, C=C, metric=metric, time_ps=time_ps, outfreq_ps=outfreq_ps)
-        trajs.append(trj)
-
-    fringes = PC.get_fringes(C, radius, metric=metric)
-
-    # reassign to find all centroids
-    for fringe in fringes:
-        for i in walker_ids:
-            phipsi = calc_phipsi(trajs[i])
-            d = cdist([fringe], phipsi)
-            if np.abs(d.min()) <= eps:
-                nexts.append((i, d.argmin()))
-                break
-
-    # prepare for next iteration
-    new_walkers = []
-    with pxul.os.StackDir(workarea):
-        shutil.rmtree('previous')
-        os.rename('next', 'previous')
-        new_walker = 0
-        for i, k in nexts:
-            prv = os.path.join('previous', 'walker.%d' % i)
-            nxt = os.path.join('next',     'walker.%d' % new_walker)
-            pxul.os.ensure_dir(nxt)
-            shutil.copy(os.path.join(prv, 'topol.tpr'),
-                        os.path.join(nxt, 'topol.tpr'))
-
-            # extract x, v, t of centroids from trr
-            trr = os.path.join(prv, 'traj.trr')
-            x,v,t = map(functools.partial(os.path.join, nxt),
-                        'x.gps v.gps t.gps'.split())
-            guamps_get(f=trr, s='positions', o=x, i=k)
-            guamps_get(f=trr, s='velocities',o=v, i=k)
-            guamps_get(f=trr, s='time',      o=t, i=k)
-
-            new_walkers.append(new_walker)
-            new_walker += 1
-
-    return C, new_walkers
-
-
 def dihedral_rmsd(X, Y):
     d = np.mod(X, 360) - np.mod(Y, 360)
     return np.sqrt((np.abs(d)**2).mean())
-
-def main(opts):
-    if opts.water is 'none':
-        preparer = mdprep.gmx_prep.PrepareImplicitSolventSystem
-    else:
-        preparer = mdprep.gmx_prep.PrepareSolvatedSystem
-
-    workarea = 'AS'
-    if os.path.exists(workarea):
-        shutil.rmtree(workarea)
-
-    pxul.logging.set_warning()
-
-    W = range(len(opts.pdbs))
-    # prepare is lazy
-    for _ in prepare(opts.pdbs, ff=opts.ff, nsteps=opts.steptime*1000, outfreq=opts.outputfreq*1000, preparer=preparer): continue
-    C = initialize(opts.pdbs, opts.radius)
-    s0, s1 = len(C), len(C)
-    statedir = os.path.join(workarea, 'state')
-    statetmpl = os.path.join(statedir, '%05d.dat')
-    pxul.os.ensure_dir(statedir)
-    np.savetxt(statetmpl % 0, C)
-
-    for i in xrange(opts.iterations):
-        print i, len(W)
-        C1, W = main_loop(W, opts.radius, C=C, metric=dihedral_rmsd, time_ps=opts.steptime, outfreq_ps=opts.outputfreq)
-        np.savetxt(statetmpl % (i+1), C1)
-        if C.shape == C1.shape and np.abs(C-C1).max() == 0:
-            print 'Converged'
-            break
-        C = C1
-
 
 def load_guamps(path, dtype=str):
     data = open(path).read().strip().split('\n')
@@ -370,12 +174,6 @@ class GromacsWalker(object):
             return self.cover(traj, top, R, C, L)
 
 
-def initialize_walkers(reference_tpr, initial_tprs):
-    return [
-        GromacsWalker.from_tpr(tpr, reference=reference_tpr)
-        for tpr in initial_tprs
-        ]
-
 class AdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
                  walker_class=GromacsWalker, extra_files=None, extra_params=None,
@@ -467,13 +265,6 @@ class AdaptiveSampler(object):
             try: self.iterate()
             except StopIteration: break
             self.current_iteration += 1
-
-
-def test():
-    tpr = '/tmp/ala.tpr'
-    pdb = '/tmp/ala.pdb'
-    s = AdaptiveSampler.from_tprs(tpr, [tpr], 10)
-    return s
 
 
 def getopts():
