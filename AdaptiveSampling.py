@@ -4,6 +4,7 @@ import PoissonCover as PC
 import pxul
 import mdprep
 from mdq.md.gmx import guamps_get, guamps_set, editconf, mdrun, tpr_set_scalar, tpr_get_scalar, disable_gromacs_backups
+import pwq
 
 import mdtraj
 
@@ -174,6 +175,16 @@ class GromacsWalker(object):
             return self.cover(traj, top, R, C, L)
 
 
+class WorkQueueTaskWrapper(object):
+    def __init__(self, obj, *args, **kws):
+        self.obj = obj
+        self.args = args
+        self.kws = kws
+
+    def run(self):
+        return self.obj.run(*self.args, **self.kws)
+
+
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
                  walker_class=GromacsWalker, extra_files=None, extra_params=None,
@@ -286,6 +297,37 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
         self._iteration_results = list()
 
 
+class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
+    "Run using WorkQueue, but the Tasks are just pickled Walkers"
+
+    def __init__(self, *args, **kws):
+        super(PythonTaskWorkQueueAdaptiveSampler, self).__init__(*args, **kws)
+        self._wq = None
+
+    def set_workqueue(self, wq):
+        self._wq = wq
+
+    def run_walker(self, walker):
+        wrapper = WorkQueueTaskWrapper(self.R, self.C, self.S)
+        wrapped = pickle.dumps(wrapper, pickle.HIGHEST_PROTOCOL)
+        t = pwq.Task('python wraptask.py python runtask.py')
+        t.specify_buffer(wrapped, 'walker.pkl', cache=False)
+        t.specify_input_file('wraptask.py', cache=True)
+        t.specify_input_file('runtask.py', cache=True)
+        import pdb;pdb.set_trace()
+        e = pwq.WorkerEmulator()
+        e(t)
+
+    def collect_results(self):
+        print self._wq
+        while not self._wq.empty():
+            t = self._wq.wait(5)
+            if t:
+                response = pickle.loads(t.output)
+                print response
+                
+
+
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
     p = ArgumentParser()
@@ -299,7 +341,9 @@ def getopts():
 
 def main(opts):
     ref = opts.tprs[0]
-    sampler = LocalAdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    q = pwq.MkWorkQueue().debug_all()()
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    sampler.set_workqueue(q)
     sampler.run()
 
 if __name__ == '__main__':
