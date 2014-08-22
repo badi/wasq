@@ -269,7 +269,7 @@ class AdaptiveSampler(object):
 
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-    p = ArgumentParser()#formatter_class=ArgumentDefaultsHelpFormatter)
+    p = ArgumentParser()
     p.add_argument('-r', '--radius', default=20)
     p.add_argument('-i', '--iterations', type=float, default=float('inf'))
     p.add_argument('tprs', metavar='TPR', nargs='+',
