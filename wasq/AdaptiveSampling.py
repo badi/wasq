@@ -326,11 +326,20 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
         while not self._wq.empty():
             t = self._wq.wait(5)
-            if t:
+
+            # success
+            if t and t.result == 0:
+                print 'Got', t.uuid
                 resultpath = '/tmp/result.pkl.%s' % t.uuid
                 result = pickle.load(open(resultpath , 'rb'))
                 os.unlink(resultpath)
                 yield result
+
+            # failure
+            elif t and t.result != 0:
+                msg = 'task %s failed with code %s\n' % (t, t.result)
+                msg += t.output
+                raise Exception, e
                 
 
 def test(opts):
