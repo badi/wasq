@@ -118,11 +118,6 @@ class GromacsWalker(object):
         self.tpr = tpr
         self._metric = metric
         self._threads = threads
-        self._tmpdir = tempfile.mkdtemp()
-
-    def __del__(self):
-        import shutil
-        shutil.rmtree(self._tmpdir)
 
     @classmethod
     def from_spec(cls, state, extra_files, extra_params):
@@ -170,20 +165,9 @@ class GromacsWalker(object):
         return C, L
 
     def run(self, R, C, L):
-        with pxul.os.StackDir(self._tmpdir):
+        with pxul.os.TmpDir():
             traj, top = self.sample()
             return self.cover(traj, top, R, C, L)
-
-
-class WorkQueueTaskWrapper(object):
-    def __init__(self, obj, *args, **kws):
-        self.obj = obj
-        self.args = args
-        self.kws = kws
-
-    def run(self):
-        return self.obj.run(*self.args, **self.kws)
-
 
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
@@ -246,6 +230,10 @@ class AbstractAdaptiveSampler(object):
         else:
             return count
 
+    def current_walkers(self):
+        for st in self.S:
+            yield self.walker_class.from_spec(st, self.extra_files, self.extra_params)
+
     def run_walker(self, walker):
         raise NotImplementedError
 
@@ -255,8 +243,7 @@ class AbstractAdaptiveSampler(object):
     def iterate(self):
         "Run one iteration"
         idx = self._select()
-        walkers = [self.walker_class.from_spec(st, self.extra_files, self.extra_params)
-                   for st in self.S]
+        walkers = list(self.current_walkers())
 
         print self.current_iteration, len(walkers)
 
@@ -297,6 +284,17 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
         self._iteration_results = list()
 
 
+
+class WorkQueueTaskWrapper(object):
+    def __init__(self, obj, *args, **kws):
+        self.obj = obj
+        self.args = args
+        self.kws = kws
+
+    def run(self):
+        return self.obj.run(*self.args, **self.kws)
+
+
 class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
     "Run using WorkQueue, but the Tasks are just pickled Walkers"
 
@@ -308,25 +306,41 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         self._wq = wq
 
     def run_walker(self, walker):
-        wrapper = WorkQueueTaskWrapper(self.R, self.C, self.S)
+        wrapper = WorkQueueTaskWrapper(walker, self.R, self.C, self.S)
         wrapped = pickle.dumps(wrapper, pickle.HIGHEST_PROTOCOL)
-        t = pwq.Task('python wraptask.py python runtask.py')
+        t = pwq.Task('python runtask.py')
         t.specify_buffer(wrapped, 'walker.pkl', cache=False)
-        t.specify_input_file('wraptask.py', cache=True)
         t.specify_input_file('runtask.py', cache=True)
-        import pdb;pdb.set_trace()
+        t.specify_output_file('/tmp/result.pkl', 'result.pkl')
+
         e = pwq.WorkerEmulator()
         e(t)
 
+        # self._wq.submit(t)
+
     def collect_results(self):
-        print self._wq
-        while not self._wq.empty():
-            t = self._wq.wait(5)
-            if t:
-                response = pickle.loads(t.output)
-                print response
+
+        resultpath = '/tmp/result.pkl'
+        result = pickle.load(open(resultpath , 'rb'))
+        os.unlink(resultpath)
+        yield result
+
+
+        # while not self._wq.empty():
+        #     t = self._wq.wait(5)
+        #     if t:
+        #         resultpath = '/tmp/result.pkl'
+        #         result = pickle.load(open(resultpath , 'rb'))
+        #         os.unlink(resultpath)
+        #         yield result
                 
 
+def test(opts):
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    walkers = sampler.current_walkers()
+    w = walkers.next()
+    sampler.run_walker(w)
+    
 
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -337,13 +351,13 @@ def getopts():
                    help='Coordinates for the initial states. The first one will be used to propagate simulation parameters.')
     opts =  p.parse_args()
     opts.tprs = map(os.path.abspath, opts.tprs)
+    opts.ref = opts.tprs[0]
     return opts
 
 def main(opts):
-    ref = opts.tprs[0]
-    q = pwq.MkWorkQueue().debug_all()()
-    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(ref, opts.tprs, opts.radius, iterations=opts.iterations)
-    sampler.set_workqueue(q)
+    q = pwq.MkWorkQueue().debug_all().replicate()()
+    sampler = LocalAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations)
+    # sampler.set_workqueue(q)
     sampler.run()
 
 if __name__ == '__main__':
