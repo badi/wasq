@@ -43,6 +43,7 @@ in
     buildInputs = [
       # provided by nixpkgs
       ipython numpy scipy matplotlib pyyaml
+      tables pandas
 
       # externals
       imagemagick
