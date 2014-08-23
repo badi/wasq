@@ -1,0 +1,10 @@
+*.pyc
+*.bak
+*.pkl
+*.tpr
+wasq/version.py
+AS
+mdprep
+result
+test
+*.egg-info
