@@ -337,7 +337,7 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
             # failure
             elif t and t.result != 0:
-                msg = 'task %s failed with code %s\n' % (t, t.result)
+                msg = 'task %s failed with code %s\n' % (t.command, t.result)
                 msg += t.output
                 raise Exception, msg
                 
