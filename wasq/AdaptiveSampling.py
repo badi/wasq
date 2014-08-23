@@ -120,8 +120,8 @@ class GromacsWalker(object):
         self._threads = threads
 
     @classmethod
-    def from_spec(cls, state, extra_files, extra_params):
-        assert 'tpr' in extra_files
+    def from_spec(cls, state, extra_params):
+        assert 'tpr' in extra_params
         return cls(state, **extra_params)
 
     @classmethod
@@ -171,7 +171,7 @@ class GromacsWalker(object):
 
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
-                 walker_class=GromacsWalker, extra_files=None, extra_params=None,
+                 walker_class=GromacsWalker, extra_params=None,
                  metric=dihedral_rmsd, checkpoint_dir='AS'):
         assert len(C) == len(S)
         self.R = R                           # :: float: the radius
@@ -179,10 +179,9 @@ class AbstractAdaptiveSampler(object):
         self.S = S                           # :: [SimulationState]: a label for each point of C
         self.current_iteration = 0           # :: int
         self.max_iterations = iterations     # :: int
-        self.extra_files = extra_files or {} # :: dict(str -> filepath)
-        self.extra_params= extra_files or {} # :: dict(str -> a)
+        self.extra_params= extra_params or {}# :: dict(str -> a)
         self.walker_class = walker_class     # :: has classmethod
-                                             #        from_spec :: SimulationState -> dict(str->filepath) -> dict(str->a) -> obj
+                                             #        from_spec :: Walker obj => SimulationState -> dict(str->a) -> obj
         self.metric = metric                 # :: a -> a -> a
         self.checkpoint_dir = checkpoint_dir # :: filepath
 
@@ -202,9 +201,8 @@ class AbstractAdaptiveSampler(object):
                 S.append(s)
         C = np.vstack(C)
         S = np.hstack(S)
-        extra_files = dict(tpr = reference)
-        return cls(radius, C, S, iterations=iterations,
-                   extra_files=extra_files, extra_params=extra_params)
+        extra_params['tpr'] = reference
+        return cls(radius, C, S, iterations=iterations, extra_params=extra_params)
 
     def select_by_kissing_number(self):
         """
@@ -232,7 +230,7 @@ class AbstractAdaptiveSampler(object):
 
     def current_walkers(self):
         for st in self.S:
-            yield self.walker_class.from_spec(st, self.extra_files, self.extra_params)
+            yield self.walker_class.from_spec(st, self.extra_params)
 
     def run_walker(self, walker):
         raise NotImplementedError
@@ -311,28 +309,28 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         t = pwq.Task('python runtask.py')
         t.specify_buffer(wrapped, 'walker.pkl', cache=False)
         t.specify_input_file('runtask.py', cache=True)
-        t.specify_output_file('/tmp/result.pkl', 'result.pkl')
+        t.specify_output_file('/tmp/result.pkl.%s' % t.uuid, 'result.pkl')
 
-        e = pwq.WorkerEmulator()
-        e(t)
+        self._wq.submit(t)
 
-        # self._wq.submit(t)
+        # e = pwq.WorkerEmulator()
+        # e(t)
 
     def collect_results(self):
 
-        resultpath = '/tmp/result.pkl'
-        result = pickle.load(open(resultpath , 'rb'))
-        os.unlink(resultpath)
-        yield result
+        # resultpath = '/tmp/result.pkl'
+        # result = pickle.load(open(resultpath , 'rb'))
+        # os.unlink(resultpath)
+        # yield result
 
 
-        # while not self._wq.empty():
-        #     t = self._wq.wait(5)
-        #     if t:
-        #         resultpath = '/tmp/result.pkl'
-        #         result = pickle.load(open(resultpath , 'rb'))
-        #         os.unlink(resultpath)
-        #         yield result
+        while not self._wq.empty():
+            t = self._wq.wait(5)
+            if t:
+                resultpath = '/tmp/result.pkl.%s' % t.uuid
+                result = pickle.load(open(resultpath , 'rb'))
+                os.unlink(resultpath)
+                yield result
                 
 
 def test(opts):
@@ -345,7 +343,7 @@ def test(opts):
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
     p = ArgumentParser()
-    p.add_argument('-r', '--radius', default=20)
+    p.add_argument('-r', '--radius', default=20.0, type=float)
     p.add_argument('-i', '--iterations', type=float, default=float('inf'))
     p.add_argument('tprs', metavar='TPR', nargs='+',
                    help='Coordinates for the initial states. The first one will be used to propagate simulation parameters.')
@@ -355,9 +353,8 @@ def getopts():
     return opts
 
 def main(opts):
-    q = pwq.MkWorkQueue().debug_all().replicate()()
-    sampler = LocalAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations)
-    # sampler.set_workqueue(q)
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations, threads=1)
+    sampler.set_workqueue(pwq.MkWorkQueue().replicate()())
     sampler.run()
 
 if __name__ == '__main__':
