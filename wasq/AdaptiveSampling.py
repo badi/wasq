@@ -171,7 +171,7 @@ class GromacsWalker(object):
 
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
-                 walker_class=GromacsWalker, extra_params=None,
+                 walker_class=GromacsWalker, extra_files=None, extra_params=None,
                  metric=dihedral_rmsd, workarea='AS'):
         assert len(C) == len(S)
         self.R = R                           # :: float: the radius
@@ -179,6 +179,7 @@ class AbstractAdaptiveSampler(object):
         self.S = S                           # :: [SimulationState]: a label for each point of C
         self.current_iteration = 0           # :: int
         self.max_iterations = iterations     # :: int
+        self.extra_files = extra_files  or {}# :: dict(remote_filename -> local_filename)
         self.extra_params= extra_params or {}# :: dict(str -> a)
         self.walker_class = walker_class     # :: has classmethod
                                              #        from_spec :: Walker obj => SimulationState -> dict(str->a) -> obj
@@ -201,8 +202,9 @@ class AbstractAdaptiveSampler(object):
                 S.append(s)
         C = np.vstack(C)
         S = np.hstack(S)
+        extra_files = {'topol.tpr': reference}
         extra_params['tpr'] = reference
-        return cls(radius, C, S, iterations=iterations, extra_params=extra_params)
+        return cls(radius, C, S, iterations=iterations, extra_files=extra_files, extra_params=extra_params)
 
     def select_by_kissing_number(self):
         """
@@ -318,6 +320,9 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
         t.specify_input_file(walker_pkl, 'walker.pkl', cache=False)
         t.specify_output_file(result_pkl, 'result.pkl', cache=False)
+
+        for remote, local in self.extra_files.iteritems():
+            t.specify_input_file(local, remote, cache=True)
 
         self._wq.submit(t)
 
