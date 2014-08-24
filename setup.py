@@ -1,4 +1,7 @@
 from setuptools import setup, find_packages
+from Cython.Build import cythonize
+
+import numpy as np
 
 import os
 import subprocess
@@ -83,6 +86,8 @@ setup(
     name = 'wasq',
     version = VERSION,
     packages = find_packages(),
+    ext_modules = cythonize('wasq/metrics/dihedral_rmsd.pyx'),
+    include_dirs = [np.get_include()],
 
     author = "Badi' Abdul-Wahid",
     author_email = 'abdulwahidc@gmail.com',

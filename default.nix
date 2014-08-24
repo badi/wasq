@@ -45,7 +45,7 @@ in
     src = ./.;
     buildInputs = [
       # provided by nixpkgs
-      ipython numpy scipy matplotlib pyyaml
+      cython ipython numpy scipy matplotlib pyyaml
       tables pandas
       tkinter
 
