@@ -172,7 +172,7 @@ class GromacsWalker(object):
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
                  walker_class=GromacsWalker, extra_params=None,
-                 metric=dihedral_rmsd, checkpoint_dir='AS'):
+                 metric=dihedral_rmsd, workarea='AS'):
         assert len(C) == len(S)
         self.R = R                           # :: float: the radius
         self.C = C                           # :: NxD array: N points in D dimensional space
@@ -183,7 +183,7 @@ class AbstractAdaptiveSampler(object):
         self.walker_class = walker_class     # :: has classmethod
                                              #        from_spec :: Walker obj => SimulationState -> dict(str->a) -> obj
         self.metric = metric                 # :: a -> a -> a
-        self.checkpoint_dir = checkpoint_dir # :: filepath
+        self.workarea = workarea             # :: filepath
 
     @classmethod
     def from_tprs(cls, reference, initials, radius, iterations=float('inf'), **extra_params):
@@ -252,7 +252,7 @@ class AbstractAdaptiveSampler(object):
             self.C, self.S = PC.labeled_online_poisson_cover(Cw, self.R, L=Sw, C=self.C, CL=self.S, metric=self.metric)
 
     def write_log(self):
-        iteration_dir = os.path.join(self.checkpoint_dir, 'iteration', '%05d' % self.current_iteration)
+        iteration_dir = os.path.join(self.workarea, 'iteration', '%05d' % self.current_iteration)
         with pxul.os.StackDir(iteration_dir):
             np.savetxt('C.txt', self.C)
             with open('S.pkl', 'wb') as fd:
@@ -299,22 +299,33 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
     def __init__(self, *args, **kws):
         super(PythonTaskWorkQueueAdaptiveSampler, self).__init__(*args, **kws)
         self._wq = None
+        self.task_files_dir = os.path.join(self.workarea, 'task_files')
+        pxul.os.ensure_dir(self.task_files_dir)
 
     def set_workqueue(self, wq):
         self._wq = wq
 
     def run_walker(self, walker):
-        wrapper = WorkQueueTaskWrapper(walker, self.R, self.C, self.S)
-        wrapped = pickle.dumps(wrapper, pickle.HIGHEST_PROTOCOL)
+        wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S)
+
         t = pwq.Task('python runtask.py')
-        t.specify_buffer(wrapped, 'walker.pkl', cache=False)
         t.specify_input_file('runtask.py', cache=True)
-        t.specify_output_file('/tmp/result.pkl.%s' % t.uuid, 'result.pkl')
+
+        walker_pkl = self.walker_path(t)
+        result_pkl = self.result_path(t)
+
+        pickle.dump(wrapped_walker, open(walker_pkl, 'wb'), pickle.HIGHEST_PROTOCOL)
+
+        t.specify_input_file(walker_pkl, 'walker.pkl', cache=False)
+        t.specify_output_file(result_pkl, 'result.pkl', cache=False)
 
         self._wq.submit(t)
 
         # e = pwq.WorkerEmulator()
         # e(t)
+
+    def walker_path(self, task): return os.path.join(self.task_files_dir, 'walker.pkl.%s' % task.uuid)
+    def result_path(self, task): return os.path.join(self.task_files_dir, 'result.pkl.%s' % task.uuid)
 
     def collect_results(self):
 
@@ -330,9 +341,11 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
             # success
             if t and t.result == 0:
                 print 'Got', t.uuid
-                resultpath = '/tmp/result.pkl.%s' % t.uuid
-                result = pickle.load(open(resultpath , 'rb'))
-                os.unlink(resultpath)
+                walker_pkl = self.walker_path(t)
+                result_pkl = self.result_path(t)
+                result = pickle.load(open(result_pkl , 'rb'))
+                os.unlink(walker_pkl)
+                os.unlink(result_pkl)
                 yield result
 
             # failure
