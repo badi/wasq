@@ -321,19 +321,10 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
         self._wq.submit(t)
 
-        # e = pwq.WorkerEmulator()
-        # e(t)
-
     def walker_path(self, task): return os.path.join(self.task_files_dir, 'walker.pkl.%s' % task.uuid)
     def result_path(self, task): return os.path.join(self.task_files_dir, 'result.pkl.%s' % task.uuid)
 
     def collect_results(self):
-
-        # resultpath = '/tmp/result.pkl'
-        # result = pickle.load(open(resultpath , 'rb'))
-        # os.unlink(resultpath)
-        # yield result
-
 
         while not self._wq.empty():
             t = self._wq.wait(5)
