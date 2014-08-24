@@ -33,6 +33,9 @@ let
   gromacs   = callPackage ./nix/gromacs.nix {inherit stdenv fetchurl cmake; fftw = fftwSinglePrec; };
   guamps    = callPackage ./nix/guamps.nix  (buildEnv       // {inherit cmake gromacs;});
 
+  # profiling
+  guppy     = callPackage ./nix/guppy.nix    pythonEnv;
+
 in
 {
   devEnv = buildPythonPackage rec {
@@ -44,11 +47,13 @@ in
       # provided by nixpkgs
       ipython numpy scipy matplotlib pyyaml
       tables pandas
+      tkinter
 
       # externals
       imagemagick
       mdtraj prody cctools
       gromacs
+      guppy
 
       # my libraries
       guamps
