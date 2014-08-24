@@ -164,8 +164,15 @@ class GromacsWalker(object):
         C, L = PC.labeled_online_poisson_cover(phipsi, R, L=state, C=C, CL=L, metric=self._metric)
         return C, L
 
-    def run(self, R, C, L):
-        with pxul.os.TmpDir():
+    def run(self, R, C, L, workarea=None):
+        if workarea is None:
+            dir_ctx = pxul.os.TmpDir
+        elif type(workarea) is str:
+            dir_ctx = lambda: pxul.os.StackDir(workarea)
+        else:
+            dir_ctx = lambda: pxul.os.StackDir(workarea())
+
+        with dir_ctx(), disable_gromacs_backups():
             traj, top = self.sample()
             return self.cover(traj, top, R, C, L)
 
@@ -308,7 +315,7 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         self._wq = wq
 
     def run_walker(self, walker):
-        wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S)
+        wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S, workarea=os.getcwd)
 
         t = pwq.Task('python runtask.py')
         t.specify_input_file('runtask.py', cache=True)
