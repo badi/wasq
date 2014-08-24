@@ -336,7 +336,6 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
             # success
             if t and t.result == 0:
-                print 'Got', t.uuid
                 walker_pkl = self.walker_path(t)
                 result_pkl = self.result_path(t)
                 result = pickle.load(open(result_pkl , 'rb'))
