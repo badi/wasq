@@ -249,13 +249,17 @@ class AbstractAdaptiveSampler(object):
 
     def iterate(self):
         "Run one iteration"
-        idx = self._select()
-        walkers = list(self.current_walkers())
+        selected = set(self._select())
+        walkers = self.current_walkers()
 
-        print self.current_iteration, len(walkers)
-
-        for w in walkers:
+        count_submitted = 0
+        for i,w in enumerate(walkers):
+            if i not in selected: continue
             self.run_walker(w)
+            selected.remove(i)
+            count_submitted += 1
+
+        print self.current_iteration, count_submitted
 
         for Cw, Sw in self.collect_results():
             self.C, self.S = PC.labeled_online_poisson_cover(Cw, self.R, L=Sw, C=self.C, CL=self.S, metric=self.metric)
