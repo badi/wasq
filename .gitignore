@@ -8,3 +8,6 @@ mdprep
 result
 test
 *.egg-info
+*.c
+*.so
+build
