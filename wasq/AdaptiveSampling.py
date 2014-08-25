@@ -318,8 +318,11 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
     def run_walker(self, walker):
         wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S, workarea=os.getcwd)
 
-        t = pwq.Task('python runtask.py')
-        t.specify_input_file('runtask.py', cache=True)
+        wasq_root = os.environ['WASQ_ROOT']
+        runtask = os.path.join(wasq_root, 'wasq', 'runtask.py')
+
+        t = pwq.Task('python %s' % runtask)
+        t.specify_input_file(runtask, 'runtask.py', cache=True)
 
         walker_pkl = self.walker_path(t)
         result_pkl = self.result_path(t)
