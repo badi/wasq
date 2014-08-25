@@ -1,5 +1,6 @@
 
 import PoissonCover as PC
+from metrics.dihedral_rmsd import dihedral_rmsd
 
 import pxul
 import mdprep
@@ -30,10 +31,6 @@ def calc_phipsi(traj):
     phi = calc_dihedral(traj, mdtraj.compute_phi)
     psi = calc_dihedral(traj, mdtraj.compute_psi)
     return np.hstack([phi,psi])
-
-def dihedral_rmsd(X, Y):
-    d = np.mod(X, 360) - np.mod(Y, 360)
-    return np.sqrt((np.abs(d)**2).mean())
 
 def load_guamps(path, dtype=str):
     data = open(path).read().strip().split('\n')
