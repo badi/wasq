@@ -36,5 +36,5 @@ if test -e AS; then
     echo "To continue, delete the 'AS' directory and rerun this script."
     exit 1
 else
-    /usr/bin/time -p python $WASQ_ROOT/wasq/AdaptiveSampling.py -r $radius -i $iterations $tprs
+    $(which time) -p python $WASQ_ROOT/wasq/AdaptiveSampling.py -r $radius -i $iterations $tprs
 fi
