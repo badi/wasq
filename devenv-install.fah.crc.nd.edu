@@ -4,6 +4,7 @@ set -x
 
 module load canopy
 test ! -d venv && canopy_cli venv venv
+source venv/bin/activate
 enpkg cython ipython numpy scipy matplotlib pyyaml pytables pandas
 
 pkgs=(pxul mdprep pwq mdq)
