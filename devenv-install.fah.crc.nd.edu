@@ -1,0 +1,12 @@
+
+set -e
+set -x
+
+module load canopy
+test ! -d venv && canopy_cli venv venv
+enpkg cython ipython numpy scipy matplotlib pyyaml pytables pandas
+
+pkgs=(pxul mdprep pwq mdq)
+for p in ${pkgs[@]}; do
+    pip install  git+git://github.com/badi/$p.git
+done

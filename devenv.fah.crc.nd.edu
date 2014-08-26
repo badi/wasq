@@ -2,3 +2,6 @@
 module load cctools-badi/3.7.5.badi
 module load gromacs/4.5.3
 module load guamps
+source venv/bin/activate
+export WASQ_ROOT=$PWD
+export PYTHONPATH=$WASQ_ROOT:$PYTHONPATH
