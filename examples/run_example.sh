@@ -20,8 +20,6 @@ set -x
 
 export PYTHONPATH=$WASQ_ROOT:$PYTHONPATH
 
-names=(unfolded)
-
 for name in ${names[@]}; do
     t=$name.tpr
     test -f $t && continue
