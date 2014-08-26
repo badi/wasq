@@ -13,11 +13,10 @@ if ! test -f $params; then
     exit 1
 fi
 
-source $params
-
 set -o errexit
 set -x
 
+source $params
 export PYTHONPATH=$WASQ_ROOT:$PYTHONPATH
 
 for name in ${names[@]}; do
