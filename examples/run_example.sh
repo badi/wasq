@@ -17,7 +17,6 @@ set -o errexit
 set -x
 
 source $params
-export PYTHONPATH=$WASQ_ROOT:$PYTHONPATH
 
 for name in ${names[@]}; do
     t=$name.tpr
