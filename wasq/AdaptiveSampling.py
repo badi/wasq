@@ -138,7 +138,8 @@ class GromacsWalker(object):
         self.state.writeX(x)
         self.state.writeV(v)
         self.state.writeT(t)
-        shutil.copy(self.tpr, tpr)
+        if not os.path.exists(tpr):
+            shutil.copy(self.tpr, tpr)
 
         # resume
         guamps_set(f=tpr, s='positions',  i=x)
@@ -321,7 +322,7 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         wasq_root = os.environ['WASQ_ROOT']
         runtask = os.path.join(wasq_root, 'wasq', 'runtask.py')
 
-        t = pwq.Task('python %s' % runtask)
+        t = pwq.Task('python runtask.py')
         t.specify_input_file(runtask, 'runtask.py', cache=True)
 
         walker_pkl = self.walker_path(t)
