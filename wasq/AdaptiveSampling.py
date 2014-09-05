@@ -393,6 +393,7 @@ def main(opts):
     if opts.debug:
         mkq.debug()
     q = mkq()
+    print 'WorkQueue running on', q.port
     sampler.set_workqueue(q)
     sampler.run()
 
