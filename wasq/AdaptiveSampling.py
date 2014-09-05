@@ -313,6 +313,9 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         self.task_files_dir = os.path.join(self.workarea, 'task_files')
         pxul.os.ensure_dir(self.task_files_dir)
 
+        self._walker_tmpl = 'walker.pkl'
+        self._result_tmpl = 'result.pkl'
+
     def set_workqueue(self, wq):
         self._wq = wq
 
@@ -338,8 +341,8 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
         self._wq.submit(t)
 
-    def walker_path(self, task): return os.path.join(self.task_files_dir, 'walker.pkl.%s' % task.uuid)
-    def result_path(self, task): return os.path.join(self.task_files_dir, 'result.pkl.%s' % task.uuid)
+    def walker_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._walker_tmpl, task.uuid))
+    def result_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._result_tmpl, task.uuid))
 
     def collect_results(self):
 
@@ -349,18 +352,19 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
             # success
             if t and t.result == 0:
                 walker_pkl = self.walker_path(t)
-                result_pkl = self.result_path(t)
-                result = pickle.load(open(result_pkl , 'rb'))
                 os.unlink(walker_pkl)
-                os.unlink(result_pkl)
-                yield result
 
             # failure
             elif t and t.result != 0:
                 msg = 'task %s failed with code %s\n' % (t.command, t.result)
                 msg += t.output
                 raise Exception, msg
-                
+
+        for result_pkl in glob.iglob(os.path.join(self.task_files_dir, '{}.*'.format(self._result_tmpl))):
+            result = pickle.load(open(result_pkl, 'rb'))
+            yield result
+            os.unlink(result_pkl)
+
 
 def test(opts):
     sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations)
