@@ -159,7 +159,7 @@ class GromacsWalker(object):
 
     def cover(self, traj, state, R, C, L, eps=0.000001):
         phipsi = calc_phipsi(traj)
-        C, L = PC.labeled_online_poisson_cover(phipsi, R, L=state, C=C, CL=L, metric=self._metric)
+        C, L = PC.online_poisson_cover(phipsi, R, L=state, Cprev=C, Lprev=L, metric=self._metric)
         return C, L
 
     def run(self, R, C, L, workarea=None):
@@ -260,7 +260,7 @@ class AbstractAdaptiveSampler(object):
         print self.current_iteration, count_submitted
 
         for Cw, Sw in self.collect_results():
-            self.C, self.S = PC.labeled_online_poisson_cover(Cw, self.R, L=Sw, C=self.C, CL=self.S, metric=self.metric)
+            self.C, self.S = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=self.C, Lprev=self.S, metric=self.metric)
 
     def write_log(self):
         iteration_dir = os.path.join(self.workarea, 'iteration', '%05d' % self.current_iteration)
