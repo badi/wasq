@@ -1,6 +1,7 @@
 
 import PoissonCover as PC
 from metrics.dihedral_rmsd import dihedral_rmsd
+from Trajectory import calc_dihedral, calc_phipsi
 
 import pxul
 import mdprep
@@ -22,15 +23,6 @@ import cPickle as pickle
 
 __DEFAULT_METRIC = PC.DEFAULT_METRIC
 
-def calc_dihedral(traj, mdtraj_calculator):
-    ind, radians = mdtraj_calculator(traj)
-    degrees = radians * 180 / np.pi
-    return degrees
-
-def calc_phipsi(traj):
-    phi = calc_dihedral(traj, mdtraj.compute_phi)
-    psi = calc_dihedral(traj, mdtraj.compute_psi)
-    return np.hstack([phi,psi])
 
 def load_guamps(path, dtype=str):
     data = open(path).read().strip().split('\n')
