@@ -103,6 +103,9 @@ class SimulationState(object):
 
 class AbstractWalker(object):
     def __init__(self, state, reference=None, reference_id=None, metric=dihedral_rmsd, **kws):
+        assert reference is not None
+        assert reference_id is not None
+
         self.state = state
         self.reference = reference
         self.reference_id = reference_id
@@ -163,7 +166,7 @@ class GromacsWalker(AbstractWalker):
         return cls(state, reference=os.path.abspath(path), **kws)
 
     @classmethod
-    def from_trr(cls, path, frame=0):
+    def from_trr(cls, path, frame=0, **kws):
         state = SimulationState.from_trr(path, frame=frame)
         return cls(state, self.tpr, metric=self._metric)
 
