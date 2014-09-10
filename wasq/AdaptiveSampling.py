@@ -156,11 +156,6 @@ class GromacsWalker(AbstractWalker):
         self._threads = threads
 
     @classmethod
-    def from_spec(cls, state, extra_params):
-        assert 'tpr' in extra_params
-        return cls(state, **extra_params)
-
-    @classmethod
     def from_tpr(cls, path, **kws):
         state = SimulationState.from_tpr(path)
         return cls(state, reference=os.path.abspath(path), **kws)
