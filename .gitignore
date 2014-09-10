@@ -12,3 +12,4 @@ test
 *.so
 build
 venv
+*-workers
