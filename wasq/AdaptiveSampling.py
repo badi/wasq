@@ -20,6 +20,7 @@ import os
 import shutil
 import tempfile
 import cPickle as pickle
+import copy
 
 __DEFAULT_METRIC = PC.DEFAULT_METRIC
 
@@ -100,12 +101,55 @@ class SimulationState(object):
     def writeT(self, path): write_guamps(path, self.t)
 
 
-class GromacsWalker(object):
-    def __init__(self, state, tpr=None, metric=dihedral_rmsd, threads=0):
-        assert tpr is not None
+class AbstractWalker(object):
+    def __init__(self, state, reference=None, reference_id=None, metric=dihedral_rmsd, **kws):
         self.state = state
-        self.tpr = tpr
+        self.reference = reference
+        self.reference_id = reference_id
         self._metric = metric
+
+        self._kws = kws
+
+    @property
+    def local_reference(self):
+        base, ext = os.path.splitext(os.path.basename(self.reference))
+        name = 'ref{i}_{base}{ext}'.format(i=self.reference_id, base=base, ext=ext)
+        return name
+
+    def sample(self):
+        """
+        return :: tuple =
+          trajectory :: mdtraj.Trajectory
+          state      :: [SimulationState]
+        """
+        raise NotImplementedError
+
+    def cover(self, traj, state, R, C, L, eps=0.000001):
+        phipsi = calc_phipsi(traj)
+        C, L = PC.online_poisson_cover(phipsi, R, L=state, Cprev=C, Lprev=L, metric=self._metric)
+        return C, L
+
+    def run(self, R, C, L, workarea=None):
+        """
+        Returns tuple ::
+          C :: NxD array: centroids
+          L :: N   array: labels
+        """
+        if workarea is None:
+            dir_ctx = pxul.os.TmpDir
+        elif type(workarea) is str:
+            dir_ctx = lambda: pxul.os.StackDir(workarea)
+        else:
+            dir_ctx = lambda: pxul.os.StackDir(workarea())
+
+        with dir_ctx():
+            traj, state = self.sample()
+            return self.cover(traj, state, R, C, L)
+
+
+class GromacsWalker(AbstractWalker):
+    def __init__(self, state, threads=0, **kws):
+        super(GromacsWalker, self).__init__(state, **kws)
         self._threads = threads
 
     @classmethod
@@ -114,57 +158,46 @@ class GromacsWalker(object):
         return cls(state, **extra_params)
 
     @classmethod
-    def from_tpr(cls, path, tpr=None, **kws):
+    def from_tpr(cls, path, **kws):
         state = SimulationState.from_tpr(path)
-        ref = tpr or path
-        return cls(state, ref, **kws)
+        return cls(state, reference=os.path.abspath(path), **kws)
 
     @classmethod
     def from_trr(cls, path, frame=0):
-        state = SimulationState.from_trr(path)
+        state = SimulationState.from_trr(path, frame=frame)
         return cls(state, self.tpr, metric=self._metric)
 
     def sample(self):
-        x,v,t,tpr = 'x.gps v.gps t.gps topol.tpr'.split()
-        # setup
-        self.state.writeX(x)
-        self.state.writeV(v)
-        self.state.writeT(t)
-        if not os.path.exists(tpr):
-            shutil.copy(self.tpr, tpr)
+        with disable_gromacs_backups():
+            x,v,t = 'x.gps v.gps t.gps'.split()
+            tpr = self.local_reference
+            # setup
+            self.state.writeX(x)
+            self.state.writeV(v)
+            self.state.writeT(t)
+            if not os.path.exists(tpr):
+                shutil.copy(self.reference, tpr)
 
-        # resume
-        guamps_set(f=tpr, s='positions',  i=x)
-        guamps_set(f=tpr, s='velocities', i=v)
-        guamps_set(f=tpr, s='time',       i=t)
+            # resume
+            guamps_set(f=tpr, s='positions',  i=x)
+            guamps_set(f=tpr, s='velocities', i=v)
+            guamps_set(f=tpr, s='time',       i=t)
 
-        # run
-        trr = 'traj.trr'
-        pdb = 'topol.pdb'
-        mdrun(s=tpr, o=trr, c=pdb, nt=self._threads)
+            # run
+            trr = 'traj.trr'
+            pdb = 'topol.pdb'
+            mdrun(s=tpr, o=trr, c=pdb, nt=self._threads)
 
-        # result
-        traj = mdtraj.load(trr, top=pdb)
-        state = np.array([SimulationState.from_trr(trr, i) for i in xrange(len(traj))])
+            # result
+            traj = mdtraj.load(trr, top=pdb)
+            walkers = np.zeros(len(traj), dtype=np.object)
+            for i in xrange(len(traj)):
+                state = SimulationState.from_trr(trr, i)
+                new_walker = copy.copy(self)
+                new_walker.state = state
+                walkers[i] = new_walker
 
-        return traj, state
-
-    def cover(self, traj, state, R, C, L, eps=0.000001):
-        phipsi = calc_phipsi(traj)
-        C, L = PC.online_poisson_cover(phipsi, R, L=state, Cprev=C, Lprev=L, metric=self._metric)
-        return C, L
-
-    def run(self, R, C, L, workarea=None):
-        if workarea is None:
-            dir_ctx = pxul.os.TmpDir
-        elif type(workarea) is str:
-            dir_ctx = lambda: pxul.os.StackDir(workarea)
-        else:
-            dir_ctx = lambda: pxul.os.StackDir(workarea())
-
-        with dir_ctx(), disable_gromacs_backups():
-            traj, top = self.sample()
-            return self.cover(traj, top, R, C, L)
+            return traj, walkers
 
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
@@ -176,32 +209,27 @@ class AbstractAdaptiveSampler(object):
         self.S = S                           # :: [SimulationState]: a label for each point of C
         self.current_iteration = 0           # :: int
         self.max_iterations = iterations     # :: int
-        self.extra_files = extra_files  or {}# :: dict(remote_filename -> local_filename)
-        self.extra_params= extra_params or {}# :: dict(str -> a)
-        self.walker_class = walker_class     # :: has classmethod
-                                             #        from_spec :: Walker obj => SimulationState -> dict(str->a) -> obj
         self.metric = metric                 # :: a -> a -> a
         self.workarea = workarea             # :: filepath
 
     @classmethod
-    def from_tprs(cls, reference, initials, radius, iterations=float('inf'), **extra_params):
+    def from_tprs(cls, initials, radius, iterations=float('inf'),
+                  walker_class=AbstractWalker, walker_kws=None, **init_kws):
+        walker_kws = walker_kws or {}
         C = []
-        S = []
+        W = np.zeros(len(initials), dtype=np.object)
         inits = map(os.path.abspath, initials)
         with pxul.os.TmpDir(), disable_gromacs_backups():
             pdb = 'topol.pdb'
-            for tpr in inits:
+            for tprid, tpr in enumerate(inits):
                 editconf(f=tpr, o=pdb)
                 traj = mdtraj.load(pdb)
                 phipsi = calc_phipsi(traj)
-                s = SimulationState.from_tpr(tpr)
+                W[tprid] = walker_class.from_tpr(tpr, reference_id = tprid, **walker_kws)
                 C.append(phipsi)
-                S.append(s)
         C = np.vstack(C)
-        S = np.hstack(S)
-        extra_files = {'topol.tpr': reference}
-        extra_params['tpr'] = reference
-        return cls(radius, C, S, iterations=iterations, extra_files=extra_files, extra_params=extra_params)
+
+        return cls(radius, C, W, **init_kws)
 
     def select_by_kissing_number(self):
         """
@@ -228,8 +256,7 @@ class AbstractAdaptiveSampler(object):
             return count
 
     def current_walkers(self):
-        for st in self.S:
-            yield self.walker_class.from_spec(st, self.extra_params)
+        return self.S
 
     def run_walker(self, walker):
         raise NotImplementedError
@@ -328,8 +355,7 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         t.specify_input_file(walker_pkl, 'walker.pkl', cache=False)
         t.specify_output_file(result_pkl, 'result.pkl', cache=False)
 
-        for remote, local in self.extra_files.iteritems():
-            t.specify_input_file(local, remote, cache=True)
+        t.specify_input_file(walker.reference, walker.local_reference, cache=True)
 
         self._wq.submit(t)
 
@@ -367,20 +393,25 @@ def test(opts):
 
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+    walker_choices = dict(gromacs = GromacsWalker)
+
     p = ArgumentParser()
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
     p.add_argument('-r', '--radius', default=20.0, type=float, help='Radius to use when covering data points')
     p.add_argument('-i', '--iterations', type=float, default=float('inf'), help='Number of AS iterations to run')
-    p.add_argument('tprs', metavar='TPR', nargs='+',
-                   help='Coordinates for the initial states. The first one will be used to propagate simulation parameters.')
-    opts =  p.parse_args()
+    p.add_argument('-t', '--type', default='gromacs', choices=walker_choices.keys())
+    p.add_argument('tprs', metavar='TPR', nargs='+', help='Coordinates for the initial states.')
+
+    opts = p.parse_args()
+    opts.walker_class = walker_choices[opts.type]
     opts.tprs = map(os.path.abspath, opts.tprs)
-    opts.ref = opts.tprs[0]
     return opts
 
 def main(opts):
-    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.ref, opts.tprs, opts.radius, iterations=opts.iterations, threads=1)
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations,
+                                                           walker_class=GromacsWalker, walker_kws=dict(threads=1))
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
     if opts.debug:
         mkq.debug()
