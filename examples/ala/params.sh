@@ -1,6 +1,6 @@
 
 names=(unfolded folded)
-time=5
+time=20
 outfreq=1
 radius=10
-iterations=100
+iterations=25
