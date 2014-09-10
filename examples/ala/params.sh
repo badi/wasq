@@ -1,6 +1,6 @@
 
-names=(unfolded)
-time=10
+names=(unfolded folded)
+time=5
 outfreq=1
-radius=5
-iterations=10
+radius=10
+iterations=100
