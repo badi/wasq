@@ -211,8 +211,7 @@ class AbstractAdaptiveSampler(object):
         self.workarea = workarea             # :: filepath
 
     @classmethod
-    def from_tprs(cls, initials, radius, iterations=float('inf'),
-                  walker_class=AbstractWalker, walker_kws=None, **init_kws):
+    def from_tprs(cls, initials, radius, walker_class=AbstractWalker, walker_kws=None, **init_kws):
         walker_kws = walker_kws or {}
         C = []
         W = np.zeros(len(initials), dtype=np.object)
@@ -223,7 +222,7 @@ class AbstractAdaptiveSampler(object):
                 editconf(f=tpr, o=pdb)
                 traj = mdtraj.load(pdb)
                 phipsi = calc_phipsi(traj)
-                W[tprid] = walker_class.from_tpr(tpr, reference_id = tprid, **walker_kws)
+                W[tprid] = walker_class.from_tpr(tpr, reference_id = tprid, walker_id = tprid, **walker_kws)
                 C.append(phipsi)
         C = np.vstack(C)
 
@@ -398,11 +397,12 @@ def getopts():
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
     p.add_argument('-r', '--radius', default=20.0, type=float, help='Radius to use when covering data points')
-    p.add_argument('-i', '--iterations', type=float, default=float('inf'), help='Number of AS iterations to run')
+    p.add_argument('-i', '--iterations', type=int, default=float('inf'), help='Number of AS iterations to run')
     p.add_argument('-t', '--type', default='gromacs', choices=walker_choices.keys())
     p.add_argument('tprs', metavar='TPR', nargs='+', help='Coordinates for the initial states.')
 
     opts = p.parse_args()
+    print 'iterations:', opts.iterations
     opts.walker_class = walker_choices[opts.type]
     opts.tprs = map(os.path.abspath, opts.tprs)
     return opts
