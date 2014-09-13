@@ -123,7 +123,7 @@ class AbstractWalker(object):
         """
         return :: tuple =
           trajectory :: mdtraj.Trajectory
-          state      :: [SimulationState]
+          state      :: [t < AbstractWalker]
         """
         raise NotImplementedError
 
