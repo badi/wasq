@@ -228,6 +228,14 @@ class AbstractAdaptiveSampler(object):
 
         return cls(radius, C, W, **init_kws)
 
+    @property
+    def iteration_dir(self):
+        return os.path.join(self.workarea, 'iteration', '{:05d}'.format(self.current_iteration))
+
+    @property
+    def final_dir(self):
+        return os.path.join(self.workarea, 'iteration', 'last')
+
     def select_by_kissing_number(self):
         """
         Select a subset of centroids to start new walkers from
@@ -273,13 +281,16 @@ class AbstractAdaptiveSampler(object):
             selected.remove(i)
             count_submitted += 1
 
-        print self.current_iteration, count_submitted
+        with pxul.os.StackDir(self.iteration_dir):
+            print self.current_iteration, count_submitted
+            with open('nwalkers.txt', 'w') as fd:
+                fd.write('{}\n'.format(count_submitted))
 
         for Cw, Sw in self.collect_results():
             self.C, self.S = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=self.C, Lprev=self.S, metric=self.metric)
 
-    def write_log(self):
-        iteration_dir = os.path.join(self.workarea, 'iteration', '%05d' % self.current_iteration)
+    def write_log(self, logdir=None):
+        iteration_dir = logdir or self.iteration_dir
         with pxul.os.StackDir(iteration_dir):
             np.savetxt('C.txt', self.C)
             with open('S.pkl', 'wb') as fd:
@@ -291,6 +302,7 @@ class AbstractAdaptiveSampler(object):
             try: self.iterate()
             except StopIteration: break
             self.current_iteration += 1
+        self.write_log(logdir=self.final_dir)
 
 
 class LocalAdaptiveSampler(AbstractAdaptiveSampler):
