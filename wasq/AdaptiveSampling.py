@@ -1,4 +1,5 @@
 
+from Cell import Cells
 import PoissonCover as PC
 from metrics.dihedral_rmsd import dihedral_rmsd
 from Trajectory import calc_dihedral, calc_phipsi
