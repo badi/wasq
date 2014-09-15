@@ -105,36 +105,18 @@ class SimulationState(object):
     def writeT(self, path): write_guamps(path, self.t)
 
 
-class AbstractWalker(object):
-    def __init__(self, state, reference=None, reference_id=None, metric=dihedral_rmsd, **kws):
-        assert reference is not None
-        assert reference_id is not None
-
+class AbstractMDEngine(object):
+    def __init__(self, state, **kws):
         self.state = state
-        self.reference = reference
-        self.reference_id = reference_id
-        self._metric = metric
-
         self._kws = kws
-
-    @property
-    def local_reference(self):
-        base, ext = os.path.splitext(os.path.basename(self.reference))
-        name = 'ref{i}_{base}{ext}'.format(i=self.reference_id, base=base, ext=ext)
-        return name
 
     def sample(self):
         """
         return :: tuple =
           trajectory :: mdtraj.Trajectory
-          state      :: [t < AbstractWalker]
+          state      :: [SimulationState]
         """
         raise NotImplementedError
-
-    def cover(self, traj, state, R, C, L, eps=0.000001):
-        phipsi = calc_phipsi(traj)
-        C, L = PC.online_poisson_cover(phipsi, R, L=state, Cprev=C, Lprev=L, metric=self._metric)
-        return C, L
 
     def run(self, R, C, L, workarea=None):
         """
@@ -150,35 +132,24 @@ class AbstractWalker(object):
             dir_ctx = lambda: pxul.os.StackDir(workarea())
 
         with dir_ctx():
-            traj, state = self.sample()
-            return self.cover(traj, state, R, C, L)
+            return self.sample()
 
 
-class GromacsWalker(AbstractWalker):
-    def __init__(self, state, threads=0, **kws):
-        super(GromacsWalker, self).__init__(state, **kws)
+class GromacsMDEngine(AbstractMDEngine):
+    def __init__(self, state, tpr=None, threads=0, **kws):
+        super(GromacsMDEngine, self).__init__(state, **kws)
+        assert tpr is not None
+        self._tpr = tpr
         self._threads = threads
-
-    @classmethod
-    def from_tpr(cls, path, **kws):
-        state = SimulationState.from_tpr(path)
-        return cls(state, reference=os.path.abspath(path), **kws)
-
-    @classmethod
-    def from_trr(cls, path, frame=0, **kws):
-        state = SimulationState.from_trr(path, frame=frame)
-        return cls(state, self.tpr, metric=self._metric)
 
     def sample(self):
         with disable_gromacs_backups():
-            x,v,t = 'x.gps v.gps t.gps'.split()
-            tpr = self.local_reference
+            x,v,t,tpr = 'x.gps v.gps t.gps topol.tpr'.split()
             # setup
             self.state.writeX(x)
             self.state.writeV(v)
             self.state.writeT(t)
-            if not os.path.exists(tpr):
-                shutil.copy(self.reference, tpr)
+            shutil.copy(self._tpr, tpr)
 
             # resume
             guamps_set(f=tpr, s='positions',  i=x)
@@ -192,14 +163,53 @@ class GromacsWalker(AbstractWalker):
 
             # result
             traj = mdtraj.load(trr, top=pdb)
-            walkers = np.zeros(len(traj), dtype=np.object)
+            state = np.zeros(len(traj), dtype=np.object)
             for i in xrange(len(traj)):
-                state = SimulationState.from_trr(trr, i)
-                new_walker = copy.copy(self)
-                new_walker.state = state
-                walkers[i] = new_walker
+                new_state = SimulationState.from_trr(trr, i, meta=self.state.meta)
+                state[i] = new_state
 
-            return traj, walkers
+            return traj, state
+
+
+class Engines:
+    @classmethod
+    def create(cls, state, engine_params=None):
+        params = engine_params or dict()
+        params = copy.copy(engine_params)
+        name = params.pop('name', 'gromacs')
+        if name == 'gromacs':
+            if 'tpr' not in params:
+                params['tpr'] = state.meta['tpr']
+            e = GromacsMDEngine(state, **params)
+        else:
+            raise ValueError, 'Could not create MDEngine with params {}'.format(engine_params)
+
+        return e
+
+
+class Walker(object):
+    """
+    A walker creates the engine necessary to run the sampling simulation.
+    """
+    def __init__(self, cell_id, metric=None, engine_params=None):
+        self.cell_id   = cell_id
+        self.engine_params = engine_params or dict()
+        self._metric = metric or dihedral_rmsd
+
+    def cover(self, traj, labels, R, C, L, eps=0.000001):
+        phipsi = calc_phipsi(traj)
+        C, L = PC.online_poisson_cover(phipsi, R, L=labels, Cprev=C, Lprev=L, metric=self._metric)
+        return C, L
+
+    def run(self, radius, cells):
+        state = cells.L[self.cell_id]
+        engine = Engines.create(state, self.engine_params)
+        traj, labels = engine.sample()
+        C, L = self.cover(traj, labels, radius, cells.C, cells.L)
+        Cnew = C[len(cells):]
+        Lnew = L[len(cells):]
+        return Cnew, Lnew
+
 
 class AbstractAdaptiveSampler(object):
     def __init__(self, R, C, S, iterations=float('inf'),
