@@ -65,16 +65,17 @@ def write_guamps(path, X):
 
 
 class SimulationState(object):
-    def __init__(self, x=None, v=None, t=None):
+    def __init__(self, x=None, v=None, t=None, meta=None):
         assert x is not None
         assert v is not None
         assert t is not None
         self.x = x
         self.v = v
         self.t = t
+        self.meta = meta or dict()
 
     @classmethod
-    def from_tpr(cls, path):
+    def from_tpr(cls, path, meta=None):
         path = os.path.abspath(path)
         with pxul.os.TmpDir():
             x,v,t = 'x v t'.split()
@@ -83,10 +84,11 @@ class SimulationState(object):
             guamps_get(f=path, s='time',       o=t)
             return cls(x=load_guamps(x, dtype=float),
                        v=load_guamps(v, dtype=float),
-                       t=load_guamps(t, dtype=float))
+                       t=load_guamps(t, dtype=float),
+                       meta=meta)
 
     @classmethod
-    def from_trr(cls, path, frame):
+    def from_trr(cls, path, frame, meta=None):
         path = os.path.abspath(path)
         with pxul.os.TmpDir():
             x,v,t = 'x v t'.split()
@@ -95,7 +97,8 @@ class SimulationState(object):
             guamps_get(f=path, s='time',       o=t, i=frame)
             return cls(x=load_guamps(x, dtype=float),
                        v=load_guamps(v, dtype=float),
-                       t=load_guamps(t, dtype=float))
+                       t=load_guamps(t, dtype=float),
+                       meta=meta)
 
     def writeX(self, path): write_guamps(path, self.x)
     def writeV(self, path): write_guamps(path, self.v)
