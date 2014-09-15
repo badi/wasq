@@ -335,14 +335,33 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
 
 
 
-class WorkQueueTaskWrapper(object):
-    def __init__(self, obj, *args, **kws):
-        self.obj = obj
-        self.args = args
-        self.kws = kws
+class WorkQueueWalker(object):
+    def __init__(self, cellid, radius, cellsdir, engine_params):
+        self.cellid = cellid
+        self.radius = radius
+        self.cellsdir = cellsdir
+        self.engine_params = engine_params
+
+    def add_state(self, task, state):
+        engine = self.engine_params['name']
+        if engine == 'gromacs':
+            tpr_worker = 'ref-{i}_{base}.tpr'.format(i=state.meta['tprid'], base='topol')
+            tpr_master = state.meta['tpr']
+            self.engine_params['tpr'] = tpr_worker
+            self.engine_params['threads']
+            task.specify_input_file(tpr_master, tpr_worker, cache=True)
+        else:
+            raise ValueError, 'Unknown engine {}'.format(engine)
 
     def run(self):
-        return self.obj.run(*self.args, **self.kws)
+        from wasq.Cell import Cells
+        from wasq.AdaptiveSampling import Walker
+        import cPickle as pickle
+
+        cells  = Cells.load_from_dir(self.cellsdir)
+        walker = Walker(self.cellid, engine_params=self.engine_params)
+        result = walker.run(self.radius, cells)
+        return result
 
 
 class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
@@ -354,35 +373,40 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         self.task_files_dir = os.path.join(self.workarea, 'task_files')
         pxul.os.ensure_dir(self.task_files_dir)
 
-        self._walker_tmpl = 'walker.pkl'
-        self._result_tmpl = 'result.pkl'
+        self.worker_walker = 'walker.pkl'
+        self.worker_result = 'result.pkl'
 
     def set_workqueue(self, wq):
         self._wq = wq
 
     def run_walker(self, walker):
-        wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S, workarea=os.getcwd)
+        pxul.os.ensure_dir(self.iteration_dir)
+
+        remote_cells_dir = os.path.basename(self.cells_dir)
+        wrapped_walker = WorkQueueWalker(walker.cell_id, self.R, remote_cells_dir, self.engine_params)
 
         wasq_root = os.environ['WASQ_ROOT']
+
         runtask = os.path.join(wasq_root, 'wasq', 'runtask.py')
 
-        t = pwq.Task('python runtask.py')
+        t = pwq.Task('python runtask.py -i {input} -o {output}'.format(input=self.worker_walker, output=self.worker_result))
         t.specify_input_file(runtask, 'runtask.py', cache=True)
 
-        walker_pkl = self.walker_path(t)
-        result_pkl = self.result_path(t)
+        t.specify_input_file(self.walker_path(t), self.worker_walker, cache=False)
+        t.specify_output_file(self.result_path(t), self.worker_result, cache=False)
 
-        pickle.dump(wrapped_walker, open(walker_pkl, 'wb'), pickle.HIGHEST_PROTOCOL)
+        self.cells.write_to_dir(self.cells_dir)
+        t.specify_input_file(self.cells_dir, remote_cells_dir, cache=True)
 
-        t.specify_input_file(walker_pkl, 'walker.pkl', cache=False)
-        t.specify_output_file(result_pkl, 'result.pkl', cache=False)
+        wrapped_walker.add_state(t, self.cells.L[walker.cell_id])
 
-        t.specify_input_file(walker.reference, walker.local_reference, cache=True)
-
+        pickle.dump(wrapped_walker, open(self.walker_path(t), 'wb'), pickle.HIGHEST_PROTOCOL)
         self._wq.submit(t)
 
-    def walker_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._walker_tmpl, task.uuid))
-    def result_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._result_tmpl, task.uuid))
+    def walker_path(self, task):
+        return os.path.join(self.task_files_dir, '{name}.{ext}'.format(name=self.worker_walker, ext=task.uuid))
+    def result_path(self, task):
+        return os.path.join(self.task_files_dir, '{name}.{ext}'.format(name=self.worker_result, ext=task.uuid))
 
     def collect_results(self):
 
@@ -390,17 +414,17 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
             t = self._wq.wait(5)
 
             # success
-            if t and t.result == 0:
+            if t and t.success:
                 walker_pkl = self.walker_path(t)
                 os.unlink(walker_pkl)
 
             # failure
-            elif t and t.result != 0:
+            elif t:
                 msg = 'task %s failed with code %s\n' % (t.command, t.result)
                 msg += t.output
                 raise Exception, msg
 
-        for result_pkl in glob.iglob(os.path.join(self.task_files_dir, '{}.*'.format(self._result_tmpl))):
+        for result_pkl in glob.iglob(os.path.join(self.task_files_dir, '{}.*'.format(self.worker_result))):
             result = pickle.load(open(result_pkl, 'rb'))
             yield result
             os.unlink(result_pkl)
