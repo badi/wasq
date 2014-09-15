@@ -212,23 +212,20 @@ class Walker(object):
 
 
 class AbstractAdaptiveSampler(object):
-    def __init__(self, R, C, S, iterations=float('inf'),
-                 walker_class=GromacsWalker, extra_files=None, extra_params=None,
-                 metric=dihedral_rmsd, workarea='AS'):
-        assert len(C) == len(S)
-        self.R = R                           # :: float: the radius
-        self.C = C                           # :: NxD array: N points in D dimensional space
-        self.S = S                           # :: [SimulationState]: a label for each point of C
-        self.current_iteration = 0           # :: int
-        self.max_iterations = iterations     # :: int
-        self.metric = metric                 # :: a -> a -> a
-        self.workarea = workarea             # :: filepath
+    def __init__(self, radius, cells, iterations=float('inf'), workarea='AS', engine='gromacs', engine_params=None):
+        self.R = radius                          # :: float: the radius
+        self.cells = cells                       # :: Cells
+        self.current_iteration = 0               # :: int
+        self.max_iterations = iterations         # :: int
+        self.metric = dihedral_rmsd              # :: a -> a -> a
+        self.workarea = workarea                 # :: filepath
+        self.engine_params = engine_params or {} # :: dict(string -> a)
+        self.engine_params['name'] = engine
 
     @classmethod
-    def from_tprs(cls, initials, radius, walker_class=AbstractWalker, walker_kws=None, **init_kws):
-        walker_kws = walker_kws or {}
+    def from_tprs(cls, initials, radius, **init_kws):
         C = []
-        W = np.zeros(len(initials), dtype=np.object)
+        L = np.zeros(len(initials), dtype=np.object)
         inits = map(os.path.abspath, initials)
         with pxul.os.TmpDir(), disable_gromacs_backups():
             pdb = 'topol.pdb'
@@ -236,11 +233,16 @@ class AbstractAdaptiveSampler(object):
                 editconf(f=tpr, o=pdb)
                 traj = mdtraj.load(pdb)
                 phipsi = calc_phipsi(traj)
-                W[tprid] = walker_class.from_tpr(tpr, reference_id = tprid, walker_id = tprid, **walker_kws)
+                L[tprid] = SimulationState.from_tpr(tpr, meta = dict(tpr=tpr, tprid=tprid))
                 C.append(phipsi)
         C = np.vstack(C)
+        cells = Cells(C, L)
 
-        return cls(radius, C, W, **init_kws)
+        return cls(radius, cells, **init_kws)
+
+    @property
+    def cells_dir(self):
+        return os.path.join(self.workarea, 'cells')
 
     @property
     def iteration_dir(self):
@@ -258,8 +260,8 @@ class AbstractAdaptiveSampler(object):
         Returns:
           I :: [Int]: indices into C to start new simulations from
         """
-        ns = PC.neighborhood_size(self.C, self.R)
-        _, dim = self.C.shape
+        ns = PC.neighborhood_size(self.cells.C, self.R)
+        dim = self.cells.dim
         kissing_number = PC.KISSING_NUMBERS[dim]
         fringes = np.where(ns < kissing_number)[0]
         return fringes
@@ -275,7 +277,7 @@ class AbstractAdaptiveSampler(object):
             return count
 
     def current_walkers(self):
-        return self.S
+        return self.cells.L
 
     def run_walker(self, walker):
         raise NotImplementedError
@@ -285,30 +287,27 @@ class AbstractAdaptiveSampler(object):
 
     def iterate(self):
         "Run one iteration"
-        selected = set(self._select())
-        walkers = self.current_walkers()
-
-        count_submitted = 0
-        for i,w in enumerate(walkers):
-            if i not in selected: continue
-            self.run_walker(w)
-            selected.remove(i)
-            count_submitted += 1
+        walkers = set(self._select())
 
         with pxul.os.StackDir(self.iteration_dir):
-            print self.current_iteration, count_submitted
+            print self.current_iteration, len(walkers)
             with open('nwalkers.txt', 'w') as fd:
-                fd.write('{}\n'.format(count_submitted))
+                fd.write('{}\n'.format(len(walkers)))
 
+        for i,cellid in enumerate(walkers):
+            w = Walker(cellid, metric=self.metric, engine_params=self.engine_params)
+            self.run_walker(w)
+
+        ncells = len(self.cells)
+        C = self.cells.C
+        L = self.cells.L
         for Cw, Sw in self.collect_results():
-            self.C, self.S = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=self.C, Lprev=self.S, metric=self.metric)
+            C, L = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=C, Lprev=L, metric=self.metric)
+        self.cells.learn(C[ncells:], L[ncells:])
 
     def write_log(self, logdir=None):
-        iteration_dir = logdir or self.iteration_dir
-        with pxul.os.StackDir(iteration_dir):
-            np.savetxt('C.txt', self.C)
-            with open('S.pkl', 'wb') as fd:
-                pickle.dump(self.S, fd, pickle.HIGHEST_PROTOCOL)
+        outdir = logdir or self.cells_dir
+        self.cells.write_to_dir(outdir)
 
     def run(self, eps=0.000001):
         while self.current_iteration < self.max_iterations:
@@ -316,7 +315,7 @@ class AbstractAdaptiveSampler(object):
             try: self.iterate()
             except StopIteration: break
             self.current_iteration += 1
-        self.write_log(logdir=self.final_dir)
+        self.write_log()
 
 
 class LocalAdaptiveSampler(AbstractAdaptiveSampler):
@@ -326,7 +325,7 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
         self._iteration_results = list()
 
     def run_walker(self, walker):
-        r = walker.run(self.R, self.C, self.S)
+        r = walker.run(self.R, self.cells)
         self._iteration_results.append(r)
 
     def collect_results(self):
