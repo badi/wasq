@@ -440,31 +440,32 @@ def test(opts):
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
-    walker_choices = dict(gromacs = GromacsWalker)
+    engine_choices = ['gromacs']
 
     p = ArgumentParser()
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
     p.add_argument('-r', '--radius', default=20.0, type=float, help='Radius to use when covering data points')
     p.add_argument('-i', '--iterations', type=int, default=float('inf'), help='Number of AS iterations to run')
-    p.add_argument('-t', '--type', default='gromacs', choices=walker_choices.keys())
+    p.add_argument('-e', '--engine', default='gromacs', choices=engine_choices)
     p.add_argument('tprs', metavar='TPR', nargs='+', help='Coordinates for the initial states.')
 
     opts = p.parse_args()
     print 'iterations:', opts.iterations
-    opts.walker_class = walker_choices[opts.type]
     opts.tprs = map(os.path.abspath, opts.tprs)
     return opts
 
 def main(opts):
-    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations,
-                                                           walker_class=GromacsWalker, walker_kws=dict(threads=1))
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations, engine=opts.engine,
+                                                           engine_params = dict(threads = 0))
+
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
     if opts.debug:
         mkq.debug()
     q = mkq()
     print 'WorkQueue running on', q.port
     sampler.set_workqueue(q)
+
     sampler.run()
 
 if __name__ == '__main__':
