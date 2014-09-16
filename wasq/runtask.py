@@ -1,7 +1,12 @@
 
 from wasq.AdaptiveSampling import *
 
+import pxul
+
 import cPickle as pickle
+import glob
+import sys
+import tarfile
 
 
 
@@ -14,9 +19,23 @@ def getopts():
 
 def main(opts):
     walker = pickle.load(open(opts.ipath, 'rb'))
-    result = walker.run()
+
+    try:
+        result = walker.run()
+        retcode = 0
+
+    except:
+        files = glob.glob('*')
+        tarball = 'debug.tar.bz2'
+        with tarfile.open(tarball, 'w:bz2') as tf:
+            for path in files:
+                tf.add(path, recursive=True)
+        with open(tarball, 'rb') as fd:
+            result = dict(debug = fd.read())
+            retcode = 1
+
     pickle.dump(result, open(opts.opath, 'wb'), pickle.HIGHEST_PROTOCOL)
-    print result[0]
+    sys.exit(retcode)
 
 
 if __name__ == '__main__':
