@@ -1,4 +1,5 @@
 
+from Cell import Cells
 import PoissonCover as PC
 from metrics.dihedral_rmsd import dihedral_rmsd
 from Trajectory import calc_dihedral, calc_phipsi
@@ -64,16 +65,17 @@ def write_guamps(path, X):
 
 
 class SimulationState(object):
-    def __init__(self, x=None, v=None, t=None):
+    def __init__(self, x=None, v=None, t=None, meta=None):
         assert x is not None
         assert v is not None
         assert t is not None
         self.x = x
         self.v = v
         self.t = t
+        self.meta = meta or dict()
 
     @classmethod
-    def from_tpr(cls, path):
+    def from_tpr(cls, path, meta=None):
         path = os.path.abspath(path)
         with pxul.os.TmpDir():
             x,v,t = 'x v t'.split()
@@ -82,10 +84,11 @@ class SimulationState(object):
             guamps_get(f=path, s='time',       o=t)
             return cls(x=load_guamps(x, dtype=float),
                        v=load_guamps(v, dtype=float),
-                       t=load_guamps(t, dtype=float))
+                       t=load_guamps(t, dtype=float),
+                       meta=meta)
 
     @classmethod
-    def from_trr(cls, path, frame):
+    def from_trr(cls, path, frame, meta=None):
         path = os.path.abspath(path)
         with pxul.os.TmpDir():
             x,v,t = 'x v t'.split()
@@ -94,43 +97,26 @@ class SimulationState(object):
             guamps_get(f=path, s='time',       o=t, i=frame)
             return cls(x=load_guamps(x, dtype=float),
                        v=load_guamps(v, dtype=float),
-                       t=load_guamps(t, dtype=float))
+                       t=load_guamps(t, dtype=float),
+                       meta=meta)
 
     def writeX(self, path): write_guamps(path, self.x)
     def writeV(self, path): write_guamps(path, self.v)
     def writeT(self, path): write_guamps(path, self.t)
 
 
-class AbstractWalker(object):
-    def __init__(self, state, reference=None, reference_id=None, metric=dihedral_rmsd, **kws):
-        assert reference is not None
-        assert reference_id is not None
-
+class AbstractMDEngine(object):
+    def __init__(self, state, **kws):
         self.state = state
-        self.reference = reference
-        self.reference_id = reference_id
-        self._metric = metric
-
         self._kws = kws
-
-    @property
-    def local_reference(self):
-        base, ext = os.path.splitext(os.path.basename(self.reference))
-        name = 'ref{i}_{base}{ext}'.format(i=self.reference_id, base=base, ext=ext)
-        return name
 
     def sample(self):
         """
         return :: tuple =
           trajectory :: mdtraj.Trajectory
-          state      :: [t < AbstractWalker]
+          state      :: [SimulationState]
         """
         raise NotImplementedError
-
-    def cover(self, traj, state, R, C, L, eps=0.000001):
-        phipsi = calc_phipsi(traj)
-        C, L = PC.online_poisson_cover(phipsi, R, L=state, Cprev=C, Lprev=L, metric=self._metric)
-        return C, L
 
     def run(self, R, C, L, workarea=None):
         """
@@ -146,35 +132,24 @@ class AbstractWalker(object):
             dir_ctx = lambda: pxul.os.StackDir(workarea())
 
         with dir_ctx():
-            traj, state = self.sample()
-            return self.cover(traj, state, R, C, L)
+            return self.sample()
 
 
-class GromacsWalker(AbstractWalker):
-    def __init__(self, state, threads=0, **kws):
-        super(GromacsWalker, self).__init__(state, **kws)
+class GromacsMDEngine(AbstractMDEngine):
+    def __init__(self, state, tpr=None, threads=0, **kws):
+        super(GromacsMDEngine, self).__init__(state, **kws)
+        assert tpr is not None
+        self._tpr = tpr
         self._threads = threads
-
-    @classmethod
-    def from_tpr(cls, path, **kws):
-        state = SimulationState.from_tpr(path)
-        return cls(state, reference=os.path.abspath(path), **kws)
-
-    @classmethod
-    def from_trr(cls, path, frame=0, **kws):
-        state = SimulationState.from_trr(path, frame=frame)
-        return cls(state, self.tpr, metric=self._metric)
 
     def sample(self):
         with disable_gromacs_backups():
-            x,v,t = 'x.gps v.gps t.gps'.split()
-            tpr = self.local_reference
+            x,v,t,tpr = 'x.gps v.gps t.gps topol.tpr'.split()
             # setup
             self.state.writeX(x)
             self.state.writeV(v)
             self.state.writeT(t)
-            if not os.path.exists(tpr):
-                shutil.copy(self.reference, tpr)
+            shutil.copy(self._tpr, tpr)
 
             # resume
             guamps_set(f=tpr, s='positions',  i=x)
@@ -188,33 +163,69 @@ class GromacsWalker(AbstractWalker):
 
             # result
             traj = mdtraj.load(trr, top=pdb)
-            walkers = np.zeros(len(traj), dtype=np.object)
+            state = np.zeros(len(traj), dtype=np.object)
             for i in xrange(len(traj)):
-                state = SimulationState.from_trr(trr, i)
-                new_walker = copy.copy(self)
-                new_walker.state = state
-                walkers[i] = new_walker
+                new_state = SimulationState.from_trr(trr, i, meta=self.state.meta)
+                state[i] = new_state
 
-            return traj, walkers
+            return traj, state
+
+
+class Engines:
+    @classmethod
+    def create(cls, state, engine_params=None):
+        params = engine_params or dict()
+        params = copy.copy(engine_params)
+        name = params.pop('name', 'gromacs')
+        if name == 'gromacs':
+            if 'tpr' not in params:
+                params['tpr'] = state.meta['tpr']
+            e = GromacsMDEngine(state, **params)
+        else:
+            raise ValueError, 'Could not create MDEngine with params {}'.format(engine_params)
+
+        return e
+
+
+class Walker(object):
+    """
+    A walker creates the engine necessary to run the sampling simulation.
+    """
+    def __init__(self, cell_id, metric=None, engine_params=None):
+        self.cell_id   = cell_id
+        self.engine_params = engine_params or dict()
+        self._metric = metric or dihedral_rmsd
+
+    def cover(self, traj, labels, R, C, L, eps=0.000001):
+        phipsi = calc_phipsi(traj)
+        C, L = PC.online_poisson_cover(phipsi, R, L=labels, Cprev=C, Lprev=L, metric=self._metric)
+        return C, L
+
+    def run(self, radius, cells):
+        state = cells.L[self.cell_id]
+        engine = Engines.create(state, self.engine_params)
+        traj, labels = engine.sample()
+        C, L = self.cover(traj, labels, radius, cells.C, cells.L)
+        Cnew = C[len(cells):]
+        Lnew = L[len(cells):]
+        return Cnew, Lnew
+
 
 class AbstractAdaptiveSampler(object):
-    def __init__(self, R, C, S, iterations=float('inf'),
-                 walker_class=GromacsWalker, extra_files=None, extra_params=None,
-                 metric=dihedral_rmsd, workarea='AS'):
-        assert len(C) == len(S)
-        self.R = R                           # :: float: the radius
-        self.C = C                           # :: NxD array: N points in D dimensional space
-        self.S = S                           # :: [SimulationState]: a label for each point of C
-        self.current_iteration = 0           # :: int
-        self.max_iterations = iterations     # :: int
-        self.metric = metric                 # :: a -> a -> a
-        self.workarea = workarea             # :: filepath
+    def __init__(self, radius, cells, iterations=float('inf'), workarea='AS', engine='gromacs', engine_params=None):
+        self.R = radius                          # :: float: the radius
+        self.cells = cells                       # :: Cells
+        self.current_iteration = 0               # :: int
+        self.max_iterations = iterations         # :: int
+        self.metric = dihedral_rmsd              # :: a -> a -> a
+        self.workarea = workarea                 # :: filepath
+        self.engine_params = engine_params or {} # :: dict(string -> a)
+        self.engine_params['name'] = engine
 
     @classmethod
-    def from_tprs(cls, initials, radius, walker_class=AbstractWalker, walker_kws=None, **init_kws):
-        walker_kws = walker_kws or {}
+    def from_tprs(cls, initials, radius, **init_kws):
         C = []
-        W = np.zeros(len(initials), dtype=np.object)
+        L = np.zeros(len(initials), dtype=np.object)
         inits = map(os.path.abspath, initials)
         with pxul.os.TmpDir(), disable_gromacs_backups():
             pdb = 'topol.pdb'
@@ -222,11 +233,16 @@ class AbstractAdaptiveSampler(object):
                 editconf(f=tpr, o=pdb)
                 traj = mdtraj.load(pdb)
                 phipsi = calc_phipsi(traj)
-                W[tprid] = walker_class.from_tpr(tpr, reference_id = tprid, walker_id = tprid, **walker_kws)
+                L[tprid] = SimulationState.from_tpr(tpr, meta = dict(tpr=tpr, tprid=tprid))
                 C.append(phipsi)
         C = np.vstack(C)
+        cells = Cells(C, L)
 
-        return cls(radius, C, W, **init_kws)
+        return cls(radius, cells, **init_kws)
+
+    @property
+    def cells_dir(self):
+        return os.path.join(self.workarea, 'cells')
 
     @property
     def iteration_dir(self):
@@ -244,8 +260,8 @@ class AbstractAdaptiveSampler(object):
         Returns:
           I :: [Int]: indices into C to start new simulations from
         """
-        ns = PC.neighborhood_size(self.C, self.R)
-        _, dim = self.C.shape
+        ns = PC.neighborhood_size(self.cells.C, self.R)
+        dim = self.cells.dim
         kissing_number = PC.KISSING_NUMBERS[dim]
         fringes = np.where(ns < kissing_number)[0]
         return fringes
@@ -261,7 +277,7 @@ class AbstractAdaptiveSampler(object):
             return count
 
     def current_walkers(self):
-        return self.S
+        return self.cells.L
 
     def run_walker(self, walker):
         raise NotImplementedError
@@ -271,30 +287,27 @@ class AbstractAdaptiveSampler(object):
 
     def iterate(self):
         "Run one iteration"
-        selected = set(self._select())
-        walkers = self.current_walkers()
-
-        count_submitted = 0
-        for i,w in enumerate(walkers):
-            if i not in selected: continue
-            self.run_walker(w)
-            selected.remove(i)
-            count_submitted += 1
+        walkers = set(self._select())
 
         with pxul.os.StackDir(self.iteration_dir):
-            print self.current_iteration, count_submitted
+            print self.current_iteration, len(walkers)
             with open('nwalkers.txt', 'w') as fd:
-                fd.write('{}\n'.format(count_submitted))
+                fd.write('{}\n'.format(len(walkers)))
 
+        for i,cellid in enumerate(walkers):
+            w = Walker(cellid, metric=self.metric, engine_params=self.engine_params)
+            self.run_walker(w)
+
+        ncells = len(self.cells)
+        C = self.cells.C
+        L = self.cells.L
         for Cw, Sw in self.collect_results():
-            self.C, self.S = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=self.C, Lprev=self.S, metric=self.metric)
+            C, L = PC.online_poisson_cover(Cw, self.R, L=Sw, Cprev=C, Lprev=L, metric=self.metric)
+        self.cells.learn(C[ncells:], L[ncells:])
 
     def write_log(self, logdir=None):
-        iteration_dir = logdir or self.iteration_dir
-        with pxul.os.StackDir(iteration_dir):
-            np.savetxt('C.txt', self.C)
-            with open('S.pkl', 'wb') as fd:
-                pickle.dump(self.S, fd, pickle.HIGHEST_PROTOCOL)
+        outdir = logdir or self.cells_dir
+        self.cells.write_to_dir(outdir)
 
     def run(self, eps=0.000001):
         while self.current_iteration < self.max_iterations:
@@ -302,7 +315,7 @@ class AbstractAdaptiveSampler(object):
             try: self.iterate()
             except StopIteration: break
             self.current_iteration += 1
-        self.write_log(logdir=self.final_dir)
+        self.write_log()
 
 
 class LocalAdaptiveSampler(AbstractAdaptiveSampler):
@@ -312,7 +325,7 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
         self._iteration_results = list()
 
     def run_walker(self, walker):
-        r = walker.run(self.R, self.C, self.S)
+        r = walker.run(self.R, self.cells)
         self._iteration_results.append(r)
 
     def collect_results(self):
@@ -322,14 +335,33 @@ class LocalAdaptiveSampler(AbstractAdaptiveSampler):
 
 
 
-class WorkQueueTaskWrapper(object):
-    def __init__(self, obj, *args, **kws):
-        self.obj = obj
-        self.args = args
-        self.kws = kws
+class WorkQueueWalker(object):
+    def __init__(self, cellid, radius, cellsdir, engine_params):
+        self.cellid = cellid
+        self.radius = radius
+        self.cellsdir = cellsdir
+        self.engine_params = engine_params
+
+    def add_state(self, task, state):
+        engine = self.engine_params['name']
+        if engine == 'gromacs':
+            tpr_worker = 'ref-{i}_{base}.tpr'.format(i=state.meta['tprid'], base='topol')
+            tpr_master = state.meta['tpr']
+            self.engine_params['tpr'] = tpr_worker
+            self.engine_params['threads']
+            task.specify_input_file(tpr_master, tpr_worker, cache=True)
+        else:
+            raise ValueError, 'Unknown engine {}'.format(engine)
 
     def run(self):
-        return self.obj.run(*self.args, **self.kws)
+        from wasq.Cell import Cells
+        from wasq.AdaptiveSampling import Walker
+        import cPickle as pickle
+
+        cells  = Cells.load_from_dir(self.cellsdir)
+        walker = Walker(self.cellid, engine_params=self.engine_params)
+        result = walker.run(self.radius, cells)
+        return result
 
 
 class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
@@ -341,35 +373,40 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
         self.task_files_dir = os.path.join(self.workarea, 'task_files')
         pxul.os.ensure_dir(self.task_files_dir)
 
-        self._walker_tmpl = 'walker.pkl'
-        self._result_tmpl = 'result.pkl'
+        self.worker_walker = 'walker.pkl'
+        self.worker_result = 'result.pkl'
 
     def set_workqueue(self, wq):
         self._wq = wq
 
     def run_walker(self, walker):
-        wrapped_walker = WorkQueueTaskWrapper(walker, self.R, self.C, self.S, workarea=os.getcwd)
+        pxul.os.ensure_dir(self.iteration_dir)
+
+        remote_cells_dir = os.path.basename(self.cells_dir)
+        wrapped_walker = WorkQueueWalker(walker.cell_id, self.R, remote_cells_dir, self.engine_params)
 
         wasq_root = os.environ['WASQ_ROOT']
+
         runtask = os.path.join(wasq_root, 'wasq', 'runtask.py')
 
-        t = pwq.Task('python runtask.py')
+        t = pwq.Task('python runtask.py -i {input} -o {output}'.format(input=self.worker_walker, output=self.worker_result))
         t.specify_input_file(runtask, 'runtask.py', cache=True)
 
-        walker_pkl = self.walker_path(t)
-        result_pkl = self.result_path(t)
+        t.specify_input_file(self.walker_path(t), self.worker_walker, cache=False)
+        t.specify_output_file(self.result_path(t), self.worker_result, cache=False)
 
-        pickle.dump(wrapped_walker, open(walker_pkl, 'wb'), pickle.HIGHEST_PROTOCOL)
+        self.cells.write_to_dir(self.cells_dir)
+        t.specify_input_file(self.cells_dir, remote_cells_dir, cache=True)
 
-        t.specify_input_file(walker_pkl, 'walker.pkl', cache=False)
-        t.specify_output_file(result_pkl, 'result.pkl', cache=False)
+        wrapped_walker.add_state(t, self.cells.L[walker.cell_id])
 
-        t.specify_input_file(walker.reference, walker.local_reference, cache=True)
-
+        pickle.dump(wrapped_walker, open(self.walker_path(t), 'wb'), pickle.HIGHEST_PROTOCOL)
         self._wq.submit(t)
 
-    def walker_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._walker_tmpl, task.uuid))
-    def result_path(self, task): return os.path.join(self.task_files_dir, '%s.%s' % (self._result_tmpl, task.uuid))
+    def walker_path(self, task):
+        return os.path.join(self.task_files_dir, '{name}.{ext}'.format(name=self.worker_walker, ext=task.uuid))
+    def result_path(self, task):
+        return os.path.join(self.task_files_dir, '{name}.{ext}'.format(name=self.worker_result, ext=task.uuid))
 
     def collect_results(self):
 
@@ -377,17 +414,17 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
             t = self._wq.wait(5)
 
             # success
-            if t and t.result == 0:
+            if t and t.success:
                 walker_pkl = self.walker_path(t)
                 os.unlink(walker_pkl)
 
             # failure
-            elif t and t.result != 0:
+            elif t:
                 msg = 'task %s failed with code %s\n' % (t.command, t.result)
                 msg += t.output
                 raise Exception, msg
 
-        for result_pkl in glob.iglob(os.path.join(self.task_files_dir, '{}.*'.format(self._result_tmpl))):
+        for result_pkl in glob.iglob(os.path.join(self.task_files_dir, '{}.*'.format(self.worker_result))):
             result = pickle.load(open(result_pkl, 'rb'))
             yield result
             os.unlink(result_pkl)
@@ -403,31 +440,32 @@ def test(opts):
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
-    walker_choices = dict(gromacs = GromacsWalker)
+    engine_choices = ['gromacs']
 
     p = ArgumentParser()
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
     p.add_argument('-r', '--radius', default=20.0, type=float, help='Radius to use when covering data points')
     p.add_argument('-i', '--iterations', type=int, default=float('inf'), help='Number of AS iterations to run')
-    p.add_argument('-t', '--type', default='gromacs', choices=walker_choices.keys())
+    p.add_argument('-e', '--engine', default='gromacs', choices=engine_choices)
     p.add_argument('tprs', metavar='TPR', nargs='+', help='Coordinates for the initial states.')
 
     opts = p.parse_args()
     print 'iterations:', opts.iterations
-    opts.walker_class = walker_choices[opts.type]
     opts.tprs = map(os.path.abspath, opts.tprs)
     return opts
 
 def main(opts):
-    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations,
-                                                           walker_class=GromacsWalker, walker_kws=dict(threads=1))
+    sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations, engine=opts.engine,
+                                                           engine_params = dict(threads = 0))
+
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
     if opts.debug:
         mkq.debug()
     q = mkq()
     print 'WorkQueue running on', q.port
     sampler.set_workqueue(q)
+
     sampler.run()
 
 if __name__ == '__main__':
