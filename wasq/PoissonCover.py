@@ -180,8 +180,10 @@ def online_poisson_cover(S, R, L=None, Cprev=None, Lprev=None, metric=DEFAULT_ME
 
         if len(new_points) <= 0: return Cprev, Lprev
 
-        _, Cn, Ln = poisson_cover(S[new_points], R, L=L[new_points], metric=metric)
+        L_sub = L[new_points] if L is not None else None
+
+        _, Cn, Ln = poisson_cover(S[new_points], R, L=L_sub, metric=metric)
         CS = np.vstack([Cprev, Cn])
-        LS = np.hstack([Lprev, Ln])
+        LS = np.hstack([Lprev, Ln]) if L is not None else None
         _, Cnew, Lnew = poisson_cover(CS, R, L=LS, metric=metric)
         return Cnew, Lnew
