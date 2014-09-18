@@ -85,7 +85,7 @@ def trax_loggers(traxdir, names='Cmd contrib'):
     return results
 
 def main(opts):
-    trax_Cmd, trax_contrib = trax_loggers(opts.traxdir)
+    traxlog = trax.Trax(traxdir=opts.traxdir)
 
     print 'Loading cells from', opts.cells_dir
     cells = Cells.load_from_dir(opts.cells_dir)
@@ -97,18 +97,11 @@ def main(opts):
     phipsi = calc_phipsi(traj)
 
     print 'Calculating MD covering with radius', opts.radius
-    if os.path.exists(trax_Cmd.cpt_path):
-        Cmd = trax_Cmd.recover(lambda obj, _: obj)
-    else:
-        _, Cmd = PC.simple_poisson_cover(phipsi, opts.radius, metric=dihedral_rmsd)
-        trax_Cmd.checkpoint(Cmd)
+    Cmd = traxlog.recover('Cmd', create=lambda: PC.simple_poisson_cover(phipsi, opts.radius, metric=dihedral_rmsd)[1])
 
     print 'Computing contributions'
-    if os.path.exists(trax_contrib.cpt_path):
-        iterations, contrib_AS, contrib_MD = trax_contrib.recover(lambda obj, _: obj)
-    else:
-        iterations, contrib_AS, contrib_MD = compute_contributions(opts.radius, cells, Cmd)
-        trax_contrib.checkpoint((iterations, contrib_AS, contrib_MD))
+    contrib = traxlog.recover('contrib', create=lambda: compute_contributions(opts.radius, cells, Cmd))
+    iterations, contrib_AS, contrib_MD = contrib
 
     print 'Loading nwalkers/iteration from', opts.iterations
     times = np.zeros_like(iterations).astype(np.float)
