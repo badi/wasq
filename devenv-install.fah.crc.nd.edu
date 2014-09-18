@@ -7,7 +7,7 @@ test ! -d venv && canopy_cli venv venv
 source venv/bin/activate
 enpkg cython ipython numpy scipy matplotlib pyyaml pytables pandas
 
-pkgs=(pxul mdprep pwq mdq)
+pkgs=(pxul mdprep pwq mdq trax)
 for p in ${pkgs[@]}; do
     pip install  git+git://github.com/badi/$p.git
 done
