@@ -59,6 +59,11 @@ class Cells(object):
         "View the labels into a single N array"
         return self._view_attr('_labels_view')
 
+    @property
+    def chunks(self):
+        "Returns the number of chunks"
+        return len(self._cells)
+
     def learn(self, cells, labels):
         assert len(cells) == len(labels), '|cells| = {} but |labels| = {}'.format(len(cells),
                                                                                   len(labels))
