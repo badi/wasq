@@ -20,6 +20,7 @@ class Cells(object):
         self._view_index = 1
         self._cells_view = initial
         self._labels_view = labels
+        self._view_idx_to_chunk = [0 for _ in xrange(self._count)]
 
     def __len__(self):
         return self._count
@@ -64,12 +65,17 @@ class Cells(object):
         "Returns the number of chunks"
         return len(self._cells)
 
+    def chunk_of(self, i):
+        "Returns the chunk that the index into the view belongs to"
+        return self._view_idx_to_chunk[i]
+
     def learn(self, cells, labels):
         assert len(cells) == len(labels), '|cells| = {} but |labels| = {}'.format(len(cells),
                                                                                   len(labels))
 
         assert cells.shape[1] == self._dim, 'Expect {dim}-D data but got {shape[1]}'.format(dim=self._dim, shape=cells.shape)
 
+        for _ in cells: self._view_idx_to_chunk.append(len(self._cells))
         self._cells.append(cells)
         self._labels.append(labels)
         self._count += len(cells)
