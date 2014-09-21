@@ -3,17 +3,32 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import numpy as np
+import itertools
+import collections
 
 
-def periodic_voronoi(X, size=360):
+def make_periodic_2d(A, box):
+    """
+    Return a periodic tiling of array A
+
+    Parameters:
+      A :: Nx2 array : the values to periodicify
+      box :: |box| == 2 : the size to shift in the (+/-) directions
+    """
+    xs, ys = [], []
+    dx, dy = box
+    dxs = [-dx, 0, dx]
+    dys = [-dy, 0, dy]
+    for dx, dy in itertools.product(dxs, dys):
+        xs.append(A[:,0] + dx)
+        ys.append(A[:,1] + dy)
+    B = np.vstack([np.hstack(xs),
+                   np.hstack(ys)]).T
+    return B
+
+def periodic_voronoi(X, size=[360, 360]):
     from scipy.spatial import Voronoi
-    from itertools import product
-    ps, hs = [], []
-    directions = [-size,0,size]
-    for dxnX, dxnY in product(directions, directions):
-        ps.append(X[:,0]+dxnX)
-        hs.append(X[:,1]+dxnY)
-    X2 = np.vstack([np.hstack(ps),np.hstack(hs)]).T
+    X2 = make_periodic_2d(X, size)
     return X2, Voronoi(X2)
 
 def voronoi_finite_polygons_2d(vor, radius=None):
