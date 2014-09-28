@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from wasq.AdaptiveSampling import *
-from wasq.VoronoiPlot import periodic_voronoi, voronoi_finite_polygons_2d
+import wasq.VoronoiPlot as V
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -21,38 +21,39 @@ def getopts():
 
 def main(opts):
     cells = Cells.load_from_dir(opts.cells)
-    I = len(cells._cells)
-    cm = mpl.colors.LinearSegmentedColormap.from_list('mycolors', ['blue','red'])
+    I = cells.chunks
+    cm = mpl.colors.LinearSegmentedColormap.from_list('mycolors', ['blue','cyan','green','yellow','orange','red'], N=I)
 
+    # create a dummy figure so that we can show the colorbar
+    # otherwise 'no mappeable' error on plt.colorbar
+
+    alpha=0.5
     Z = [[0,0],[0,0]]
     levels = range(0, I-1, 1)
-    colorbar = plt.contourf(Z, levels, cmap=cm)
+    colorbar = plt.contourf(Z, levels, cmap=cm, alpha=alpha)
     plt.clf()
 
-    for i in xrange(len(cells._cells) - 1):
-        print 'Iteration', i
-        phipsi = cells._cells[i]
-        # phipsi = np.vstack(cells._cells[:i+1])
-        for phi, psi in phipsi:
-            n = plt.cm.jet.N / len(cells._cells)
-            k = i + i * n
-            c = plt.cm.jet(k)
-            plt.text(phi, psi, s=str(i), horizontalalignment='center', verticalalignment='center', color=c, fontsize=8)
-        plt.axis([-180,180,-180,180])
-        plt.xticks(range(-180, 180+60, 60))
-        plt.yticks(range(-180, 180+60, 60))
-        plt.tight_layout()
+    C, vor = V.periodic_voronoi(cells.C)
+    regions, verts = V.voronoi_finite_polygons_2d(vor)
+
+    for i, r in enumerate(regions):
+        c = cells.chunk_of(i % len(cells.C))
+        color = mpl.colors.colorConverter.to_rgba(cm(c), alpha=alpha)
+        poly = verts[r]
+        plt.fill(*zip(*poly), lw=0, ec=color, fc=color, fill=True)
+
+    plt.scatter(cells.C[:,0], cells.C[:,1], marker='.', color='black')
+
+    plt.axis([-180,180,-180,180])
+    plt.xticks(range(-180, 180+60, 60))
+    plt.yticks(range(-180, 180+60, 60))
 
     cb = plt.colorbar(colorbar)
     cb.ax.set_ylabel('Iteration')
 
-    # _, v = periodic_voronoi(cells.C)
-    # regions, verts = voronoi_finite_polygons_2d(v)
-    # for r in regions:
-    #     poly = verts[r]
-    #     plt.fill(*zip(*poly), linestyle='solid', fill=False)
-        
-
+    plt.xlabel('$\Phi$', fontsize=20)
+    plt.ylabel('$\Psi$', fontsize=20)
+    plt.tight_layout()
     plt.savefig(opts.outfile)
 
 
