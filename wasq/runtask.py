@@ -26,6 +26,7 @@ def main(opts):
 
     except:
         files = glob.glob('*')
+        files = filter(lambda f: os.access(f, os.R_OK), files)
         tarball = 'debug.tar.bz2'
         with tarfile.open(tarball, 'w:bz2') as tf:
             for path in files:
