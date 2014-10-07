@@ -93,9 +93,10 @@ def main(opts):
 
     print 'Loading trajectories', opts.trajs
     traj = mdtraj.load(opts.trajs, top=opts.top)
+    # traj = traxlog.recover('traj', create=lambda:mdtraj.load(opts.trajs, top=opts.top))
 
     print 'Calculating dihedrals'
-    phipsi = calc_phipsi(traj)
+    phipsi = traxlog.recover('phipsi', create=lambda:calc_phipsi(traj))
 
     print 'Calculating MD covering with radius', opts.radius
     Cmd = traxlog.recover('Cmd', create=lambda: PC.simple_poisson_cover(phipsi, opts.radius, metric=dihedral_rmsd)[1])
