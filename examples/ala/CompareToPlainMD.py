@@ -27,7 +27,8 @@ def getopts():
     p.add_argument('-x', '--trajs', nargs='+')
     p.add_argument('-t', '--top', default=None, help='Topology file for loading the trajectory (if needed)')
     p.add_argument('-d', '--timestep_ps', type=float, default=1)
-    p.add_argument('-i', '--iterations', default='AS/iteration')
+    p.add_argument('-i', '--iterations', default='AS/iteration', help='AS iterations directory')
+    p.add_argument('-m', '--mdtime', action='store_true', default=False, help='Show total MD time')
     p.add_argument('-w', '--walkerlen_ps', default=1, type=float)
     p.add_argument('-o', '--outpath', required=True)
     p.add_argument('-X', '--traxdir', default='.trax')
@@ -70,7 +71,7 @@ def plot_contributions(iterations, contrib_AS, contrib_MD):
     plt.scatter(iterations, contrib_AS, color='red',  label='AS')
     plt.scatter(iterations, contrib_MD, color='blue', label='MD')
     plt.legend(loc='best')
-    plt.xlabel('AS Time Simulated (ns)')
+    plt.xlabel('Time Simulated (ns)')
     plt.ylabel('Contribution')
 
 
@@ -108,15 +109,18 @@ def main(opts):
     for i in xrange(len(times)-1):
         j = i+1
         path = os.path.join(opts.iterations, '{:05d}'.format(i), 'nwalkers.txt')
-        nwalkers = open(path).read()
-        times[j] = float(nwalkers) * opts.walkerlen_ps
+        nwalkers = float(open(path).read().strip())
+        times[j] = nwalkers * opts.walkerlen_ps
     timescum = np.zeros_like(times)
     for i in xrange(len(times)):
         timescum[i] = times[:i].sum() / 10.**3
 
     print 'Plotting contributions'
     plot_contributions(timescum, contrib_AS, contrib_MD)
-    plt.title('MD = {} $\mu s$'.format(len(traj)*opts.timestep_ps / 10.**6))
+
+    if opts.mdtime:
+        plt.title('MD = {} $ns$'.format(len(traj)*opts.timestep_ps / 10.**3))
+
     plt.savefig(opts.outpath)
 
 
