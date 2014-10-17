@@ -7,14 +7,22 @@ import itertools
 import collections
 
 
-def make_periodic_2d(A, box):
+def make_periodic_2d(A, box, labels=None):
     """
     Return a periodic tiling of array A
 
     Parameters:
       A :: Nx2 array : the values to periodicify
       box :: |box| == 2 : the size to shift in the (+/-) directions
+      labels :: maybe N array of `a`: label for each point in A
     """
+
+    if labels is not None:
+        print labels
+        assert len(A) == len(labels), \
+          'Size mismatch: number of labels ({}) should equal number of elements ({})'.format(len(A), len(labels))
+
+    L = []
     xs, ys = [], []
     dx, dy = box
     dxs = [-dx, 0, dx]
@@ -22,14 +30,23 @@ def make_periodic_2d(A, box):
     for dx, dy in itertools.product(dxs, dys):
         xs.append(A[:,0] + dx)
         ys.append(A[:,1] + dy)
+
+        if labels is not None:
+            L.extend(labels)
+
     B = np.vstack([np.hstack(xs),
                    np.hstack(ys)]).T
-    return B
 
-def periodic_voronoi(X, size=[360, 360]):
+    if labels is None:
+        return B, None
+    else:
+        assert len(B) == len(L), 'Size mismatch |B|={} =/= |L|={}'.format(len(B), len(L))
+        return B, L
+
+def periodic_voronoi(X, size=[360, 360], labels=None):
     from scipy.spatial import Voronoi
-    X2 = make_periodic_2d(X, size)
-    return X2, Voronoi(X2)
+    X2, L = make_periodic_2d(X, size, labels=labels)
+    return X2, L, Voronoi(X2)
 
 def voronoi_finite_polygons_2d(vor, radius=None):
     """
@@ -114,6 +131,32 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         new_regions.append(new_region.tolist())
 
     return new_regions, np.asarray(new_vertices)
+
+
+def plot_cells(C, L=None, get_colors=lambda _:lambda _:None,
+               linestyle='solid', fill=False, alpha=None, edgecolor='black',
+               marker='.', markercolor='black'):
+    """
+    C :: NxD array of float: centroids
+    L :: maybe N array of a: labels
+    """
+
+    _, labels, v = periodic_voronoi(C, labels=L)
+    regions, verts = voronoi_finite_polygons_2d(v)
+    colors = get_colors(labels)
+    for i, r in enumerate(regions):
+        color = colors(i)
+        poly = verts[r]
+        plt.fill(*zip(*poly), linestyle=linestyle, fill=fill, color=color, alpha=alpha, ec=edgecolor)
+    plt.scatter(C[:,0], C[:,1], marker=marker, color=markercolor)
+
+    # set axis to dihedral box
+    plt.axis([-180,180,-180,180])
+    # x/y ticks to from -180 to 180
+    for axis in 'x y'.split():
+        attr = axis + 'ticks'
+        set_tick = getattr(plt, attr)
+        set_tick(range(-180,180+60,60))
 
 
 def plot_step(C):
