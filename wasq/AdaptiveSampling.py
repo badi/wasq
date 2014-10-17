@@ -375,9 +375,17 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
         self.worker_walker = 'walker.pkl'
         self.worker_result = 'result.pkl'
+        self.log_tasks = None
 
     def set_workqueue(self, wq):
         self._wq = wq
+
+    def set_task_logger(self, logger):
+        self.log_tasks = logger
+
+    def log_task(self, task):
+        if self.log_tasks is not None:
+            self.log_tasks.process(task)
 
     def run_walker(self, walker):
         pxul.os.ensure_dir(self.iteration_dir)
@@ -415,11 +423,13 @@ class PythonTaskWorkQueueAdaptiveSampler(AbstractAdaptiveSampler):
 
             # success
             if t and t.success:
+                self.log_task(t)
                 walker_pkl = self.walker_path(t)
                 os.unlink(walker_pkl)
 
             # failure
             elif t:
+                self.log_task(t)
                 msg = 'task %s failed with code %s\n' % (t.command, t.result)
                 msg += t.output
                 raise Exception, msg
@@ -445,6 +455,8 @@ def getopts():
     p = ArgumentParser()
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
+    p.add_argument('-n', '--name', help='Use <name> with the Catalog Server')
+    p.add_argument('-l', '--logdir', default='wq', help='Where to log WQ statistics')
     p.add_argument('-r', '--radius', default=20.0, type=float, help='Radius to use when covering data points')
     p.add_argument('-i', '--iterations', type=int, default=float('inf'), help='Number of AS iterations to run')
     p.add_argument('-e', '--engine', default='gromacs', choices=engine_choices)
@@ -460,8 +472,20 @@ def main(opts):
                                                            engine_params = dict(threads = 0))
 
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
+
     if opts.debug:
         mkq.debug()
+    if opts.name:
+        mkq.catalog().name(opts.name)
+    if opts.logdir:
+        logdir = os.path.join(sampler.workarea, opts.logdir)
+        pxul.os.ensure_dir(logdir)
+        log_master_path = os.path.join(logdir, 'wq.log')
+        log_tasks_path  = os.path.join(logdir, 'tasks.gz')
+        mkq.logfile(log_master_path)
+        logger = pwq.TaskStatsLogger(log_tasks_path)
+        sampler.set_task_logger(logger)
+
     q = mkq()
     print 'WorkQueue running on', q.port
     sampler.set_workqueue(q)
