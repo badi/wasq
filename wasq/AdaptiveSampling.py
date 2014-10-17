@@ -469,7 +469,7 @@ def getopts():
 
 def main(opts):
     sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations, engine=opts.engine,
-                                                           engine_params = dict(threads = 0))
+                                                           engine_params = dict(threads = 1))
 
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
 
