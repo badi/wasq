@@ -221,6 +221,7 @@ class AbstractAdaptiveSampler(object):
         self.workarea = workarea                 # :: filepath
         self.engine_params = engine_params or {} # :: dict(string -> a)
         self.engine_params['name'] = engine
+        self.maxneighbors = None
 
     @classmethod
     def from_tprs(cls, initials, radius, **init_kws):
@@ -252,22 +253,31 @@ class AbstractAdaptiveSampler(object):
     def final_dir(self):
         return os.path.join(self.workarea, 'iteration', 'last')
 
-    def select_by_kissing_number(self):
+    def select_fringes(self, maxneighbors):
         """
         Select a subset of centroids to start new walkers from
-        Accepts:
-          C :: NxM array: the centroids
-        Returns:
-          I :: [Int]: indices into C to start new simulations from
+        Input:
+          C :: NxM array of centroids
+        Output:
+          I :: [Int]: indices
         """
         ns = PC.neighborhood_size(self.cells.C, self.R)
-        dim = self.cells.dim
-        kissing_number = PC.KISSING_NUMBERS[dim]
-        fringes = np.where(ns < kissing_number)[0]
+        k = maxneighbors
+        fringes = np.where(ns < k)[0]
         return fringes
 
+
+    def select_by_kissing_number(self):
+        dim = self.cells.dim
+        k = PC.KISSING_NUMBER[dim]
+        return self.select_fringes(k)
+
+
     def select(self):
-        return self.select_by_kissing_number()
+        if self.maxneighbors is None:
+            return self.select_by_kissing_number()
+        else:
+            return self.select_fringes(self.maxneighbors)
 
     def _select(self):
         count = self.select()
@@ -453,6 +463,7 @@ def getopts():
     engine_choices = ['gromacs']
 
     p = ArgumentParser()
+    p.add_argument('-k', '--maxneighbors', default=20)
     p.add_argument('-d', '--debug', default=False, help='Turn on debugging')
     p.add_argument('-p', '--port', default=9123, help='Start WorkQueue on this port')
     p.add_argument('-n', '--name', help='Use <name> with the Catalog Server')
@@ -470,6 +481,7 @@ def getopts():
 def main(opts):
     sampler = PythonTaskWorkQueueAdaptiveSampler.from_tprs(opts.tprs, opts.radius, iterations=opts.iterations, engine=opts.engine,
                                                            engine_params = dict(threads = 1))
+    sampler.maxneighbors = opts.maxneighbors
 
     mkq = pwq.MkWorkQueue().replicate().port(opts.port)
 
