@@ -10,7 +10,7 @@ WORKER_ARGS=$@
 
 mkdir -p ${USER}-workers >/dev/null 2>&1
 pushd ${USER}-workers >/dev/null 2>&1
-cat $WASQ_ROOT/crc_worker >worker.sh
+cat $WASQ_ROOT/scripts/crc_worker >worker.sh
 chmod 755 worker.sh
 
 qsub -q long -t 1-$count:1 -cwd  worker.sh --  $WORKER_ARGS
