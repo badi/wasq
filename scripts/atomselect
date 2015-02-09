@@ -1,0 +1,24 @@
+#!/usr/bin/env python
+
+import pxul
+from mdprep import editconf
+
+def getopts():
+    from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+    p = ArgumentParser()
+    p.add_argument('-i', '--input', required=True, help='A gromacs file (pdb,tpr,gro)')
+    p.add_argument('-s', '--select', required=True, help='atom selection string')
+    p.add_argument('-o', '--output', required=True)
+
+    opts = p.parse_args()
+    opts.input = os.path.abspath(opts.intput)
+
+    return opts    
+
+
+def main(opts):
+    
+    with pxul.TmpDir():
+        editconf(f=opts.input, o='topol.pdb')
+        
