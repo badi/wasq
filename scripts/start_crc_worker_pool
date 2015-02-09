@@ -73,4 +73,4 @@ test -z $count   && assertFail count empty
 
 params="$params -t $backend $count"
 
-work_queue_pool $params
+nohup work_queue_pool $params >out.log &

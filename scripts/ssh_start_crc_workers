@@ -15,4 +15,4 @@ start_params="$@"
 
 
 
-ssh $uri "bash -l -c 'cd $wasq_root && . devenv && ./scripts/start_crc_workers $start_params'"
+ssh $uri "bash -l -c 'cd $wasq_root && . devenv && ./scripts/start_crc_worker_pool $start_params'"
