@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 
+import numpy as np
+
 import pxul
 from mdprep import editconf
+import prody
+
+import os
 
 def getopts():
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -12,13 +17,20 @@ def getopts():
     p.add_argument('-o', '--output', required=True)
 
     opts = p.parse_args()
-    opts.input = os.path.abspath(opts.intput)
+    opts.input = os.path.abspath(opts.input)
 
     return opts    
 
 
 def main(opts):
     
-    with pxul.TmpDir():
+    with pxul.os.TmpDir():
         editconf(f=opts.input, o='topol.pdb')
-        
+        prot = prody.parsePDB('topol.pdb')
+        ix = prot.select(opts.select).getIndices()
+
+    np.savetxt(opts.output, ix, fmt='%d')
+
+
+if __name__ == '__main__':
+    main(getopts())
