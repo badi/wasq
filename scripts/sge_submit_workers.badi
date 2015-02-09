@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [ -z $WASQ_ROOT ]; then
+    echo "Unset WASQ_ROOT variable"
+    exit 1
+fi
+
+count=$1; shift
+WORKER_ARGS=$@
+
+mkdir -p ${USER}-workers >/dev/null 2>&1
+pushd ${USER}-workers >/dev/null 2>&1
+cat <<EOF>worker.sh
+#!/bin/bash
+
+cd $WASQ_ROOT
+source devenv
+work_queue_worker $@
+EOF
+chmod 755 worker.sh
+
+qsub -q long -t 1-$count:1 -cwd  worker.sh --  $WORKER_ARGS
