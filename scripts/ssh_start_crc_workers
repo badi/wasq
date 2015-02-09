@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+
+usage() {
+    echo "USAGE: $(basename $0) URI WASQ_ROOT ..." >&2
+}
+
+uri=$1
+shift
+
+wasq_root=$1
+shift
+
+start_params="$@"
+
+
+
+ssh $uri "bash -l -c 'cd $wasq_root && . devenv && ./scripts/start_crc_workers $start_params'"

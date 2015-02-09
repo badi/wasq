@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+
+usage() {
+    echo "USAGE: $(basename $0): (-n NAME | -p PORT -h HOST) -t BACKEND=$backend -c COUNT=$count" >&2
+}
+
+
+assertFail() {
+    local fn=$1
+    local msg=$2
+    echo "Assertion Failure: $fn is $msg" >&2
+    usage
+    exit 1
+}
+
+
+workdir=$WASQ_ROOT/workers/$(hostname)
+
+test -d $workdir || mkdir -p $workdir
+cd $workdir
+
+
+backend='local'
+count=1
+
+if [ $# -eq 0 ]; then
+    usage
+    exit 1
+fi    
+
+while getopts ":n:p:h:t:c:" opt; do
+    case $opt in
+	n)
+	    catalog_server=true
+	    wq_name=$OPTARG
+	    ;;
+	p)
+	    catalog_server=false
+	    wq_port=$OPTARG
+	    ;;
+	h)
+	    catalog_server=false
+	    wq_host=$OPTARG
+	    ;;
+	t)
+	    backend=$OPTARG
+	    ;;
+	c)
+	    count=$OPTARG
+	    ;;
+	*)
+	    usage
+	    exit 1
+	    ;;
+    esac
+done
+
+params=""
+case $catalog_server in
+    true)
+	test -z $wq_name && assertFail wq_name empty
+	params="$params -a -N $wq_name"
+	;;
+    *)
+	test -z $wq_port && assertFail wq_port empty
+	test -z $wq_host && assertFail wq_host empty
+	params="$params $wq_host $wq_port"
+esac
+
+test -z $backend && assertFail backend empty
+test -z $count   && assertFail count empty
+
+params="$params -t $backend $count"
+
+work_queue_pool $params
