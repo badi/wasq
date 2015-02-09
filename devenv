@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+
+host=$(hostname -d)
+
+case $(hostname -d) in
+    "")
+	host=$(hostname);;
+    *);;
+esac
+
+source devenv.$host
